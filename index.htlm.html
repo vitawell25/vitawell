@@ -1521,6 +1521,106 @@ async function saveProfileCompletion() {
 }
 
 
+// ══════════════════════════════════════════════════════════════
+// loadRoutineIntoSession — carga los ejercicios de la rutina
+// del entrenador directamente en STATE.session
+// ══════════════════════════════════════════════════════════════
+function loadRoutineIntoSession() {
+  var trNote = STATE.profile && STATE.profile.trainer_note;
+  if (!trNote) {
+    toast('Sin rutina asignada aún', 'err');
+    return;
+  }
+
+  var exercises = [];
+
+  // Parse the trainer note format: "📋 Rutina: Nombre\n3×10 Ejercicio @80kg RPE7\n..."
+  var lines = trNote.split('\n');
+  lines.forEach(function(line) {
+    line = line.trim();
+    if (!line || line.indexOf('📋 Rutina:') === 0) return;
+
+    // Format: "3×10 Nombre del Ejercicio @75kg RPE7"
+    var match = line.match(/^(\d+)[×x](\d+)\s+(.+?)(?:\s+@(\d+(?:\.\d+)?)kg)?(?:\s+RPE(\d+))?$/);
+    if (!match) return;
+
+    var sets  = parseInt(match[1]) || 3;
+    var reps  = match[2] || '10';
+    var name  = match[3].trim();
+    var weight = match[4] || '';
+    var rpe   = match[5] || '';
+
+    // Find exercise in library by name (fuzzy match)
+    var libEx = (STATE.exercises || []).find(function(e) {
+      return _normalize(e.name) === _normalize(name) ||
+             _normalize(e.name).indexOf(_normalize(name)) >= 0 ||
+             _normalize(name).indexOf(_normalize(e.name)) >= 0;
+    });
+
+    // Build sets array pre-filled with trainer's prescribed values
+    var setsArr = [];
+    for (var i = 0; i < sets; i++) {
+      setsArr.push({
+        w: weight,   // pre-fill weight
+        r: reps,     // pre-fill reps
+        rpe: rpe     // pre-fill RPE target
+      });
+    }
+
+    exercises.push({
+      id:       libEx ? libEx.id       : 'routine-' + Date.now() + '-' + Math.random(),
+      name:     libEx ? libEx.name     : name,
+      icon:     libEx ? libEx.icon     : '💪',
+      category: libEx ? libEx.category : '',
+      sets:     setsArr,
+      // Extra metadata from routine
+      prescribed: { sets: sets, reps: reps, weight: weight, rpe: rpe }
+    });
+  });
+
+  if (!exercises.length) {
+    // Fallback: just switch to log tab if we couldn't parse
+    set({ tab: 'log' });
+    toast('Abre el tab HOY para registrar tu entrenamiento');
+    return;
+  }
+
+  // Load into session — first exercise expanded
+  var firstId = exercises[0].id;
+  set({
+    session:  exercises,
+    expanded: firstId,
+    tab:      'log',
+    date:     new Date().toISOString().slice(0, 10),
+    sessionNote: '',
+    sessionTags: []
+  });
+
+  toast('✅ ' + exercises.length + ' ejercicio' + (exercises.length > 1 ? 's' : '') + ' cargados de tu rutina');
+}
+
+
+// Add exercise with pre-filled values from routine prescription
+function addExToSessionWithValues(id, sets, reps, weight, rpe) {
+  var ex = STATE.exercises.find(function(e){ return e.id===id; });
+  if (!ex) { addExToSession(id); return; }
+  if (STATE.session.find(function(s){ return s.id===id; })) {
+    toast('Ya está en el entrenamiento', 'err'); return;
+  }
+  var setsArr = [];
+  var n = parseInt(sets) || 3;
+  for (var i = 0; i < n; i++) {
+    setsArr.push({ w: weight || '', r: reps || '', rpe: rpe || '' });
+  }
+  var ns = STATE.session.concat([{
+    id: ex.id, name: ex.name, icon: ex.icon, category: ex.category || '',
+    sets: setsArr
+  }]);
+  set({ session: ns, expanded: ex.id, tab: 'log' });
+  toast(ex.name + ' agregado con valores de tu rutina 💪');
+}
+
+
 function toggleGoal(goalId) {
   var pf = STATE.profileForm;
   if (!pf) return;
@@ -2687,7 +2787,7 @@ function renderClient(app) {
                   + (cat ? '<div style="font-size:10px;color:'+cols[0]+';font-weight:800;letter-spacing:.5px">'+cat.toUpperCase()+'</div>' : '')
                 + '</div>'
                 // Quick-add button
-                + (libEx ? '<button onclick="addExToSession(\''+libEx.id+'\');set({tab:\'log\'})" '
+                + (libEx ? '<button onclick="addExToSessionWithValues(\''+libEx.id+'\',\''+ex.sets+'\',\''+ex.reps+'\',\''+ex.weight+'\',\''+ex.rpe+'\')" '
                   + 'style="background:linear-gradient(135deg,'+C.aqua+','+C.lime+');border:none;color:'+C.bg+';border-radius:10px;padding:8px 14px;font-size:11px;font-weight:900;cursor:pointer;white-space:nowrap">+ Agregar</button>' : '')
               + '</div>'
               // Sets / Reps / Weight / RPE
@@ -2710,7 +2810,7 @@ function renderClient(app) {
           html += '</div>';
 
           // CTA button
-          html += '<button onclick="set({tab:\'log\'})" '
+          html += '<button onclick="loadRoutineIntoSession()" '
             + 'style="width:100%;margin-top:20px;padding:16px;background:linear-gradient(135deg,'+C.aqua+','+C.lime+');border:none;border-radius:16px;color:'+C.bg+';font-size:15px;font-weight:900;cursor:pointer;box-shadow:0 6px 24px rgba(0,201,167,.4)">'
             + '⚡ Empezar esta rutina ahora'
             + '</button>';
