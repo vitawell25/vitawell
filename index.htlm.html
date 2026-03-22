@@ -3660,41 +3660,83 @@ function renderAuth(app) {
   var isReg   = s.authMode === 'register';
   var isReset = s.authMode === 'reset';
 
-  var html = '<div style="min-height:100vh;background:#0A0E14;display:flex;align-items:center;justify-content:center;padding:20px">'
-    +'<div style="width:100%;max-width:400px">'
-    +'<div style="text-align:center;margin-bottom:32px">'
-    +'<div style="display:flex;justify-content:center;margin-bottom:16px">'+logoImg(88,22)+'</div>'
-    +'<div style="font-family:\'Space Grotesk\',sans-serif;font-size:32px;font-weight:700;background:linear-gradient(90deg,#00c9a7,#a8e63d);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px;margin-bottom:6px">VitaWell</div>'
-    +'<p style="color:rgba(0,201,167,0.55);font-size:11px;letter-spacing:3px;font-weight:700">SALUD Y BIENESTAR</p></div>'
-    +'<div style="background:#0D1420;border:1px solid rgba(0,201,167,0.15);border-radius:18px;padding:24px">';
+  var INP = 'width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:13px 16px;font-size:14px;color:#E8F4F8;font-family:Nunito,sans-serif;outline:none;';
+  var LBL = 'display:block;font-size:10px;letter-spacing:2px;font-weight:700;color:rgba(232,244,248,0.45);margin-bottom:8px;';
+  var FW  = 'margin-bottom:16px;';
+
+  function f(label, type, val, oninput, ph) {
+    return '<div style="'+FW+'"><label style="'+LBL+'">'+label.toUpperCase()+'</label>'
+      +'<input type="'+type+'" value="'+(val||'')+'" oninput="'+oninput+'" placeholder="'+(ph||'')+'" '
+      +'style="'+INP+'" '
+      +'onfocus="this.style.borderColor=\'rgba(0,201,167,0.5)\';this.style.background=\'rgba(0,201,167,0.04)\'" '
+      +'onblur="this.style.borderColor=this.value?\'rgba(0,201,167,0.25)\':\' rgba(255,255,255,0.08)\';this.style.background=\'rgba(255,255,255,0.04)\'"/>'
+      +'</div>';
+  }
+
+  var html = '<div style="min-height:100vh;background:#0A0E14;display:flex;align-items:center;justify-content:center;padding:24px 20px;">'
+    +'<div style="width:100%;max-width:400px;">'
+    +'<div style="display:flex;flex-direction:column;align-items:center;margin-bottom:36px;gap:14px;">'
+      +'<div style="width:84px;height:84px;border-radius:22px;overflow:hidden;box-shadow:0 12px 40px rgba(0,201,167,0.22);">'
+        +logoImg(84,22)
+      +'</div>'
+      +'<span style="font-size:11px;letter-spacing:5px;color:rgba(0,201,167,0.5);font-weight:700;">SALUD Y BIENESTAR</span>'
+    +'</div>'
+    +'<div style="background:#0F1520;border-radius:20px;padding:28px 28px 24px;box-shadow:0 24px 60px rgba(0,0,0,0.55),0 0 0 0.5px rgba(0,201,167,0.1);">';
 
   if (isReset) {
-    html += '<div style="text-align:center;margin-bottom:20px"><div style="font-size:32px;margin-bottom:8px">🔑</div>'
-      +'<div style="font-size:16px;font-weight:800;margin-bottom:4px">Recuperar contraseña</div>'
-      +'<div style="font-size:13px;color:'+C.muted+'">Te enviaremos un enlace a tu email</div></div>'
-      +fieldHtml('Email','email',s.form.email,"setForm('email',this.value)",'correo@ejemplo.com');
-    if (s.resetSent) html += '<div style="background:#4ade8022;border:1px solid #4ade8044;border-radius:12px;padding:14px;margin-bottom:16px;text-align:center"><div style="font-size:20px;margin-bottom:6px">✅</div><div style="font-size:13px;color:#4ade80;font-weight:700">Revisa tu email</div></div>';
-    if (s.error) html += '<p style="color:#ff6b88;font-size:12px;margin-bottom:12px;font-weight:600">⚠️ '+s.error+'</p>';
-    html += '<button onclick="submitReset()" style="'+btn('aqua')+';width:100%;padding:14px;font-size:14px;border-radius:14px">'+(s.saving?'Enviando...':'Enviar enlace →')+'</button>'
-      +'<button onclick="set({authMode:\'login\',error:\'\',resetSent:false})" style="'+btn('ghost')+';width:100%;padding:12px;font-size:13px;border-radius:14px;margin-top:8px">← Volver</button>';
+    html += '<div style="text-align:center;margin-bottom:24px;">'
+      +'<div style="font-size:15px;font-weight:800;color:#E8F4F8;margin-bottom:6px;">Recuperar contraseña</div>'
+      +'<div style="font-size:13px;color:rgba(255,255,255,0.35);">Te enviamos un enlace a tu email</div></div>';
+    if (s.resetSent) html += '<div style="background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:12px;padding:14px;margin-bottom:16px;text-align:center;"><div style="font-size:13px;color:#4ade80;font-weight:700;">Revisa tu bandeja ✓</div></div>';
+    if (s.error) html += '<div style="color:#ff6b88;font-size:12px;margin-bottom:14px;padding:10px 14px;background:rgba(255,107,136,0.07);border-radius:10px;border:1px solid rgba(255,107,136,0.15);">⚠️ '+s.error+'</div>';
+    html += f('Email','email',s.form.email,"setForm('email',this.value)",'correo@ejemplo.com');
+    html += '<button onclick="submitReset()" '+(s.saving?'disabled':'')+' style="width:100%;padding:14px;background:linear-gradient(135deg,#00c9a7,#00b894 50%,#78d96a);border:none;border-radius:12px;color:#0A0E14;font-size:14px;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif;">'+(s.saving?'Enviando...':'Enviar enlace →')+'</button>';
+    html += '<button onclick="set({authMode:\'login\',error:\'\',resetSent:false})" style="width:100%;padding:12px;margin-top:8px;background:transparent;border:none;color:rgba(255,255,255,0.3);font-size:12px;cursor:pointer;font-family:Nunito,sans-serif;">← Volver al login</button>';
+
   } else {
-    html += '<div style="display:flex;background:'+C.dark+';border-radius:12px;padding:4px;margin-bottom:20px">'
-      +'<button onclick="set({authMode:\'login\',error:\'\'})" style="flex:1;padding:9px;border:none;border-radius:10px;background:'+(s.authMode==='login'?'linear-gradient(135deg,'+C.aqua+','+C.lime+')':'transparent')+';color:'+(s.authMode==='login'?C.bg:C.muted)+';font-weight:800;font-size:12px;cursor:pointer">Iniciar sesión</button>'
-      +'<button onclick="set({authMode:\'register\',error:\'\'})" style="flex:1;padding:9px;border:none;border-radius:10px;background:'+(isReg?'linear-gradient(135deg,'+C.aqua+','+C.lime+')':'transparent')+';color:'+(isReg?C.bg:C.muted)+';font-weight:800;font-size:12px;cursor:pointer">Crear cuenta</button>'
+    html += '<div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:24px;">'
+      +'<button onclick="set({authMode:\'login\',error:\'\'})" style="flex:1;background:transparent;border:none;padding:10px 0 13px;font-size:13px;font-weight:500;cursor:pointer;font-family:Nunito,sans-serif;position:relative;color:'+(s.authMode==='login'?'#E8F4F8':'rgba(255,255,255,0.3)')+';">'
+        +'Iniciar sesión'
+        +(s.authMode==='login'?'<span style="position:absolute;bottom:-1px;left:10px;right:10px;height:2px;background:#00c9a7;border-radius:2px 2px 0 0;display:block;"></span>':'')
+      +'</button>'
+      +'<button onclick="set({authMode:\'register\',error:\'\'})" style="flex:1;background:transparent;border:none;padding:10px 0 13px;font-size:13px;font-weight:500;cursor:pointer;font-family:Nunito,sans-serif;position:relative;color:'+(isReg?'#E8F4F8':'rgba(255,255,255,0.3)')+';">'
+        +'Crear cuenta'
+        +(isReg?'<span style="position:absolute;bottom:-1px;left:10px;right:10px;height:2px;background:#00c9a7;border-radius:2px 2px 0 0;display:block;"></span>':'')
+      +'</button>'
       +'</div>';
+
     if (isReg) {
-      html += fieldHtml('Nombre completo','text',s.form.name,"setForm('name',this.value)",'Tu nombre');
-      html += '<div style="margin-bottom:14px"><div style="'+lbl()+'">ROL</div><div style="display:flex;gap:8px">'
-        +'<button onclick="setRole(\'client\')" style="flex:1;padding:10px;border:1.5px solid '+(s.form.role==='client'?C.aqua:C.border)+';border-radius:12px;background:'+(s.form.role==='client'?C.aqua+'22':C.bg)+';color:'+(s.form.role==='client'?C.aqua:C.muted)+';font-weight:700;font-size:12px;cursor:pointer">Cliente 👤</button>'
-        +'<button onclick="setRole(\'trainer\')" style="flex:1;padding:10px;border:1.5px solid '+(s.form.role==='trainer'?C.aqua:C.border)+';border-radius:12px;background:'+(s.form.role==='trainer'?C.aqua+'22':C.bg)+';color:'+(s.form.role==='trainer'?C.aqua:C.muted)+';font-weight:700;font-size:12px;cursor:pointer">Entrenador 🏋️</button>'
+      html += f('Nombre completo','text',s.form.name,"setForm('name',this.value)",'Tu nombre');
+      html += '<div style="'+FW+'"><label style="'+LBL+'">SOY</label>'
+        +'<div style="display:flex;gap:8px;">'
+          +'<button onclick="setRole(\'client\')" style="flex:1;padding:11px;border:1px solid '+(s.form.role==='client'?'rgba(0,201,167,0.45)':'rgba(255,255,255,0.08)')+';border-radius:12px;background:'+(s.form.role==='client'?'rgba(0,201,167,0.08)':'rgba(255,255,255,0.02)')+';color:'+(s.form.role==='client'?'#00c9a7':'rgba(255,255,255,0.3)')+';font-size:13px;font-weight:500;cursor:pointer;font-family:Nunito,sans-serif;transition:all .2s;">Cliente</button>'
+          +'<button onclick="setRole(\'trainer\')" style="flex:1;padding:11px;border:1px solid '+(s.form.role==='trainer'?'rgba(0,201,167,0.45)':'rgba(255,255,255,0.08)')+';border-radius:12px;background:'+(s.form.role==='trainer'?'rgba(0,201,167,0.08)':'rgba(255,255,255,0.02)')+';color:'+(s.form.role==='trainer'?'#00c9a7':'rgba(255,255,255,0.3)')+';font-size:13px;font-weight:500;cursor:pointer;font-family:Nunito,sans-serif;transition:all .2s;">Entrenador</button>'
         +'</div></div>';
     }
-    html += fieldHtml('Email','email',s.form.email,"setForm('email',this.value)",'correo@ejemplo.com');
-    html += fieldHtml('Contraseña','password',s.form.pass,"setForm('pass',this.value)",'Mínimo 6 caracteres');
-    if (s.error) html += '<p style="color:#ff6b88;font-size:12px;margin-bottom:12px;font-weight:600">⚠️ '+s.error+'</p>';
-    html += '<button onclick="submitAuth()" '+(s.saving?'disabled':'')+' style="'+btn('aqua')+';width:100%;padding:14px;font-size:14px;border-radius:14px;margin-bottom:8px">'+(s.saving?'Cargando...':(isReg?'Crear cuenta →':'Entrar →'))+'</button>';
-    if (!isReg) html += '<button onclick="set({authMode:\'reset\',error:\'\',resetSent:false})" style="background:transparent;border:none;color:'+C.muted+';font-size:12px;cursor:pointer;width:100%;padding:8px;font-family:Nunito,sans-serif">¿Olvidaste tu contraseña?</button>';
+
+    html += f('Email','email',s.form.email,"setForm('email',this.value)",'correo@ejemplo.com');
+    html += f('Contraseña','password',s.form.pass,"setForm('pass',this.value)",'Mínimo 6 caracteres');
+
+    if (s.error) html += '<div style="color:#ff6b88;font-size:12px;margin-bottom:14px;padding:10px 14px;background:rgba(255,107,136,0.07);border-radius:10px;border:1px solid rgba(255,107,136,0.15);">⚠️ '+s.error+'</div>';
+
+    html += '<button onclick="submitAuth()" '+(s.saving?'disabled':'')+' '
+      +'style="width:100%;padding:15px;background:linear-gradient(135deg,#00c9a7 0%,#00b894 50%,#78d96a 100%);border:none;border-radius:12px;color:#0A0E14;font-size:14px;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif;margin-top:4px;" '
+      +'onmouseover="if(!this.disabled)this.style.opacity=\'0.88\'" '
+      +'onmouseout="this.style.opacity=\'1\'" '
+      +'onmousedown="this.style.transform=\'scale(0.99)\'" '
+      +'onmouseup="this.style.transform=\'scale(1)\'">'
+      +(s.saving?'Cargando...':(isReg?'Crear cuenta →':'Entrar →'))
+      +'</button>';
+
+    if (!isReg) {
+      html += '<div style="text-align:center;margin-top:18px;">'
+        +'<button onclick="set({authMode:\'reset\',error:\'\',resetSent:false})" '
+        +'style="background:transparent;border:none;color:rgba(0,201,167,0.4);font-size:12px;cursor:pointer;font-family:Nunito,sans-serif;" '
+        +'onmouseover="this.style.color=\'#00c9a7\'" onmouseout="this.style.color=\'rgba(0,201,167,0.4)\'">'
+        +'¿Olvidaste tu contraseña?</button></div>';
+    }
   }
+
   html += '</div></div></div>';
   app.innerHTML = html;
 }
