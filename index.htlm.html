@@ -93,6 +93,13 @@
     .wex-chip-col{display:none}
     .wex-chip-lbl{display:none}
     .wex-chip-box{display:none}
+  
+    /* ── BUTTON STATES ──────────────────────────────────────── */
+    button{-webkit-tap-highlight-color:transparent}
+    button:active{transform:scale(0.97)!important;opacity:.85!important}
+    .vw-btn-primary:hover{opacity:.88!important}
+    /* ── INPUT FOCUS ────────────────────────────────────────── */
+    input:focus,textarea:focus{outline:none}
   </style>
 </head>
 <body>
@@ -468,43 +475,170 @@ function renderSessionSummary() {
 }
 
 function _renderHeatmap(sessions) {
-  var now = new Date();
-  var days = {};
-  sessions.forEach(function(ss) { days[ss.date] = true; });
+  // Build day lookup: date -> session object
+  var dayMap = {};
+  sessions.forEach(function(ss) { dayMap[ss.date] = ss; });
 
-  // Streak
+  // Streak calculation
+  var now = new Date();
   var streak = 0;
-  for (var i = 0; i < 60; i++) {
-    var d = new Date(now.getTime() - i*86400000).toISOString().slice(0,10);
-    if (days[d]) streak++;
+  for (var i = 0; i < 365; i++) {
+    var d = new Date(now.getTime() - i * 86400000).toISOString().slice(0,10);
+    if (dayMap[d]) streak++;
     else if (i > 0) break;
   }
 
-  var html = '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:20px">'
-    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
-    +'<div style="font-size:10px;color:'+C.muted+';letter-spacing:2px;font-weight:800">ACTIVIDAD — 10 SEMANAS</div>'
-    +'<div style="display:flex;align-items:center;gap:6px">'
-    +'<span style="font-size:18px">🔥</span>'
-    +'<span style="font-size:16px;font-weight:900;color:'+C.lime+'">'+streak+'</span>'
-    +'<span style="font-size:10px;color:'+C.muted+'">días</span>'
-    +'</div></div>'
-    +'<div style="display:flex;gap:3px;flex-wrap:wrap">';
+  // Calendar month
+  var displayMonth = STATE.heatmapMonth || new Date(now.getFullYear(), now.getMonth(), 1);
+  var year = displayMonth.getFullYear();
+  var month = displayMonth.getMonth();
+  var monthNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var dayNames = ['D','L','M','X','J','V','S'];
 
-  for (var j = 69; j >= 0; j--) {
-    var dt = new Date(now.getTime() - j*86400000).toISOString().slice(0,10);
-    var active = !!days[dt];
-    html += '<div title="'+dt+'" style="width:12px;height:12px;border-radius:3px;background:'
-      +(active?C.lime:'#162850')+';flex-shrink:0"></div>';
+  var firstDay = new Date(year, month, 1).getDay();
+  var daysInMonth = new Date(year, month + 1, 0).getDate();
+  var todayStr = now.toISOString().slice(0,10);
+
+  var html = '<div style="background:' + C.card + ';border:1px solid rgba(0,201,167,0.12);border-radius:20px;padding:18px;margin-bottom:16px">';
+
+  // Header: streak + nav
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+    + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span style="font-size:22px">🔥</span>'
+      + '<span style="font-size:22px;font-weight:900;color:' + C.lime + '">' + streak + '</span>'
+      + '<span style="font-size:10px;color:' + C.muted + ';letter-spacing:1.5px;font-weight:700"> DÍAS</span>'
+    + '</div>'
+    + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<button onclick="var d=STATE.heatmapMonth||new Date();STATE.heatmapMonth=new Date(d.getFullYear(),d.getMonth()-1,1);render()" '
+        + 'style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#E8F4F8;width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;font-family:Nunito,sans-serif">‹</button>'
+      + '<span style="font-size:13px;font-weight:700;color:#E8F4F8;min-width:120px;text-align:center">' + monthNames[month] + ' ' + year + '</span>'
+      + '<button onclick="var d=STATE.heatmapMonth||new Date();STATE.heatmapMonth=new Date(d.getFullYear(),d.getMonth()+1,1);render()" '
+        + 'style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#E8F4F8;width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;font-family:Nunito,sans-serif">›</button>'
+    + '</div>'
+  + '</div>';
+
+  // Day headers
+  html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px">';
+  dayNames.forEach(function(d) {
+    html += '<div style="text-align:center;font-size:10px;color:' + C.muted + ';font-weight:700;letter-spacing:1px;padding:2px 0">' + d + '</div>';
+  });
+  html += '</div>';
+
+  // Day cells
+  html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">';
+
+  // Empty cells before first day
+  for (var i = 0; i < firstDay; i++) {
+    html += '<div></div>';
   }
 
+  // Day cells
+  for (var day = 1; day <= daysInMonth; day++) {
+    var dateStr = year + '-' + String(month + 1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+    var hasSession = !!dayMap[dateStr];
+    var isToday = dateStr === todayStr;
+    var isSelected = STATE.selectedHistoryDate === dateStr;
+    var isFuture = dateStr > todayStr;
+
+    var bg, textColor, border;
+    if (isSelected) {
+      bg = C.aqua; textColor = '#0A0E14'; border = 'none';
+    } else if (hasSession) {
+      bg = C.lime + '22'; textColor = C.lime; border = '1.5px solid ' + C.lime + '66';
+    } else if (isToday) {
+      bg = 'rgba(255,255,255,0.06)'; textColor = '#E8F4F8'; border = '1px solid rgba(255,255,255,0.2)';
+    } else {
+      bg = 'transparent'; textColor = isFuture ? 'rgba(255,255,255,0.12)' : C.muted; border = 'none';
+    }
+
+    html += '<button onclick="STATE.selectedHistoryDate=\'' + dateStr + '\';_renderHistoryDetail(\'' + dateStr + '\')" '
+      + 'style="aspect-ratio:1;border-radius:8px;border:' + border + ';background:' + bg + ';'
+      + 'color:' + textColor + ';font-size:12px;font-weight:' + (hasSession || isToday ? '800' : '500') + ';'
+      + 'cursor:' + (isFuture ? 'default' : 'pointer') + ';font-family:Nunito,sans-serif;padding:0;'
+      + 'display:flex;align-items:center;justify-content:center;position:relative;">'
+      + day
+      + (hasSession && !isSelected ? '<span style="position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:' + C.lime + '"></span>' : '')
+      + '</button>';
+  }
   html += '</div></div>';
   return html;
 }
 
+function _renderHistoryDetail(dateStr) {
+  var mount = document.getElementById('history-detail-mount');
+  if (!mount) return;
+
+  // Find session for this date
+  var session = STATE.sessions.find(function(ss) { return ss.date === dateStr; });
+
+  if (!session) {
+    mount.style.opacity = '0';
+    mount.innerHTML = '<div style="background:' + C.card + ';border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:24px;text-align:center;animation:fadeUp .25s ease">'
+      + '<div style="font-size:32px;margin-bottom:10px">🌙</div>'
+      + '<div style="font-size:14px;font-weight:700;color:#E8F4F8;margin-bottom:6px">Sin entrenamiento</div>'
+      + '<div style="font-size:12px;color:rgba(255,255,255,0.35)">No hay registros para este día.</div>'
+      + '</div>';
+    mount.style.transition = 'opacity .2s';
+    setTimeout(function(){ mount.style.opacity = '1'; }, 10);
+    return;
+  }
+
+  var groups = groupSets(session.session_sets || []);
+  var totalVol = Math.round((session.session_sets||[]).reduce(function(a,x){ return a+(+(x.weight)||0)*(+(x.reps)||0); },0));
+  var d = new Date(dateStr + 'T12:00:00');
+  var months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  var dateLabel = d.getDate() + ' de ' + months[d.getMonth()] + ', ' + d.getFullYear();
+
+  var html = '<div style="animation:fadeUp .25s ease">';
+
+  // Date header
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+    + '<div style="font-size:14px;font-weight:800;color:#E8F4F8">' + dateLabel + '</div>'
+    + '<div style="display:flex;gap:6px">'
+      + '<div style="background:' + C.aqua + '18;border:1px solid ' + C.aqua + '33;border-radius:20px;padding:4px 10px;font-size:10px;color:' + C.aqua + ';font-weight:800;letter-spacing:.5px">' + groups.length + ' EJERCICIOS</div>'
+      + '<div style="background:rgba(168,230,61,0.12);border:1px solid rgba(168,230,61,0.25);border-radius:20px;padding:4px 10px;font-size:10px;color:' + C.lime + ';font-weight:800;letter-spacing:.5px">' + totalVol + 'kg VOL</div>'
+    + '</div>'
+  + '</div>';
+
+  // Exercise blocks
+  groups.forEach(function(gr) {
+    var cols = getCatColor(gr.category || '');
+    html += '<div style="background:#0A0E14;border:1px solid rgba(255,255,255,0.05);border-left:3px solid ' + cols[0] + ';border-radius:12px;padding:12px 14px;margin-bottom:8px">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+        + '<span style="font-size:16px">' + (gr.icon || '💪') + '</span>'
+        + '<div style="font-size:13px;font-weight:800;color:#E8F4F8">' + gr.name + '</div>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px">';
+
+    gr.sets.forEach(function(s, si) {
+      var rpeCol = s.rpe ? (+s.rpe >= 9 ? '#ef4444' : +s.rpe >= 7 ? '#f59e0b' : '#4ade80') : C.muted;
+      html += '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:8px;text-align:center">'
+        + '<div style="font-size:10px;color:' + C.muted + ';letter-spacing:1px;margin-bottom:4px">SERIE ' + (si+1) + '</div>'
+        + '<div style="font-size:13px;font-weight:800;color:#E8F4F8">' + (s.weight || '—') + '<span style="font-size:9px;font-weight:500;color:' + C.muted + '">kg</span></div>'
+        + '<div style="font-size:11px;color:' + C.aqua + '">' + (s.reps || '—') + '<span style="font-size:9px;color:' + C.muted + '"> reps</span></div>'
+        + (s.rpe ? '<div style="font-size:10px;font-weight:700;color:' + rpeCol + ';margin-top:2px">RPE ' + s.rpe + '</div>' : '')
+        + '</div>';
+    });
+
+    html += '</div></div>';
+  });
+
+  if (session.notes) {
+    html += '<div style="background:rgba(0,201,167,0.05);border:1px solid rgba(0,201,167,0.12);border-radius:10px;padding:10px 14px;margin-top:4px">'
+      + '<div style="font-size:11px;color:' + C.aqua + ';font-weight:700;letter-spacing:1px;margin-bottom:4px">NOTA</div>'
+      + '<div style="font-size:12px;color:rgba(232,244,248,0.6);line-height:1.6">' + session.notes + '</div>'
+      + '</div>';
+  }
+
+  html += '</div>';
+
+  mount.style.opacity = '0';
+  mount.innerHTML = html;
+  mount.style.transition = 'opacity .2s';
+  setTimeout(function(){ mount.style.opacity = '1'; }, 10);
+}
 
 
-// ── SUPABASE ─────────────────────────────────────────────────────
-// ── ROUTINE BUILDER ──────────────────────────────────────────────
 function addRoutineEx(id) {
   var ex = STATE.exercises.find(function(e){ return e.id===id; });
   if (!ex) return;
@@ -1808,6 +1942,20 @@ async function saveSession() {
     var full = await SB.from('workout_sessions').select('*, session_sets(*)').eq('id', wsR.data.id).single();
     set({sessions:[full.data].concat(STATE.sessions), session:[], expanded:null, saving:false, sessionNote:'', sessionTags:[], sessionSummaryOpen:false});
     toast('Sesion guardada 💪');
+    // ── Success checkmark animation ──────────────────────────
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(10,14,20,0.85);display:flex;align-items:center;justify-content:center;animation:fadeUp .3s ease';
+    overlay.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:16px">'
+      +'<svg width="80" height="80" viewBox="0 0 80 80"><circle cx="40" cy="40" r="38" fill="none" stroke="#00c9a7" stroke-width="3" stroke-dasharray="239" stroke-dashoffset="239" style="animation:dashIn .6s ease forwards .1s"><animate attributeName="stroke-dashoffset" from="239" to="0" dur=".6s" begin=".1s" fill="freeze"/></circle><polyline points="22,42 35,55 58,28" fill="none" stroke="#a8e63d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="60" stroke-dashoffset="60" style="animation:dashIn .4s ease forwards .6s"><animate attributeName="stroke-dashoffset" from="60" to="0" dur=".4s" begin=".6s" fill="freeze"/></polyline></svg>'
+      +'<div style="font-family:Nunito,sans-serif;font-size:18px;font-weight:800;color:#E8F4F8">¡Sesión guardada!</div>'
+      +'<div style="font-family:Nunito,sans-serif;font-size:13px;color:rgba(232,244,248,0.45)">Tu progreso está seguro 💪</div>'
+      +'</div>';
+    document.body.appendChild(overlay);
+    setTimeout(function(){ 
+      overlay.style.transition='opacity .4s'; 
+      overlay.style.opacity='0'; 
+      setTimeout(function(){ if(overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 400);
+    }, 2200);
     set({tab:'history'});
   } else {
     set({saving:false});
@@ -2926,6 +3074,7 @@ function renderClient(app) {
 
     // ── STREAK + HEATMAP ──────────────────────────────────────
     html += _renderHeatmap(s.sessions);
+    html += '<div id="history-detail-mount" style="margin-bottom:16px"></div>';
 
     if (!s.sessions.length) {
       html += '<div style="text-align:center;padding:40px 20px;color:'+C.muted+'"><div style="font-size:48px;margin-bottom:12px">📅</div><div style="font-size:16px;font-weight:800">Sin historial aún</div></div>';
