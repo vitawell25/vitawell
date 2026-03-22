@@ -1891,26 +1891,78 @@ async function openClient(id) {
 }
 
 async function linkClient(clientId) {
-  await SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', clientId);
+  var upd = await SB.from('profiles')
+    .update({trainer_id: STATE.user.id})
+    .eq('id', clientId)
+    .select();
+
+  if (upd.error || !upd.data || !upd.data.length) {
+    var msg = upd.error ? friendlyError(upd.error.message) : 'Verifica permisos RLS en Supabase';
+    toast('Error al vincular: ' + msg, 'err');
+    return;
+  }
   toast('Cliente vinculado ✅');
   await loadAllClients();
   set({trainerTab: 'clients'});
 }
 
 async function inviteClient() {
-  var email = STATE.invite.trim();
-  if (!email) { toast('Ingresa un email','err'); return; }
+  var email = (STATE.invite || '').trim();
+  if (!email) { toast('Ingresa un email', 'err'); return; }
+  if (!email.includes('@')) { toast('Email inválido', 'err'); return; }
+
+  set({saving: true});
   toast('Buscando...');
-  var r = await SB.from('profiles').select('*').eq('email', email).single();
-  if (r.data) {
-    if (r.data.trainer_id === STATE.user.id) { toast('Ya es tu cliente','err'); return; }
-    await SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', r.data.id);
-    STATE.invite = '';
-    await loadAllClients();
-    toast(r.data.full_name + ' vinculado 🎉');
-  } else {
-    toast('Email no encontrado. El cliente debe registrarse primero.','err');
+
+  // Find client by email
+  var r = await SB.from('profiles').select('*').eq('email', email).eq('role','client').single();
+
+  if (!r.data) {
+    set({saving: false});
+    toast('No se encontró un cliente con ese email. Debe registrarse primero en Vitawell.', 'err');
+    return;
   }
+
+  var client = r.data;
+
+  if (client.trainer_id === STATE.user.id) {
+    set({saving: false});
+    toast(client.full_name + ' ya es tu cliente', 'err');
+    return;
+  }
+
+  if (client.trainer_id && client.trainer_id !== STATE.user.id) {
+    set({saving: false});
+    toast(client.full_name + ' ya tiene otro entrenador asignado', 'err');
+    return;
+  }
+
+  // Perform the link
+  var upd = await SB.from('profiles')
+    .update({trainer_id: STATE.user.id})
+    .eq('id', client.id)
+    .select();  // .select() forces Supabase to return the updated row
+
+  if (upd.error) {
+    set({saving: false});
+    console.error('Link error:', upd.error);
+    toast('Error al vincular: ' + friendlyError(upd.error.message), 'err');
+    return;
+  }
+
+  // Verify the update actually happened
+  if (!upd.data || !upd.data.length) {
+    set({saving: false});
+    toast('No se pudo vincular. Verifica los permisos en Supabase (ejecuta fix_linking_rls.sql)', 'err');
+    return;
+  }
+
+  // Success — refresh client list
+  STATE.invite = '';
+  set({saving: false});
+  await loadAllClients();
+  set({trainerTab: 'clients'});
+  toast('✅ ' + client.full_name + ' vinculado a tu perfil 🎉');
 }
 
 async function saveTrainerNote(clientId) {
@@ -2017,22 +2069,49 @@ function renderTrainer(app) {
   // TAB: VINCULAR
   // ══════════════════════════════════════════════════════════════
   if (s.trainerTab === 'invite') {
-    html += '<div style="max-width:480px">'
-      + '<div style="background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:18px;padding:24px">'
-        + '<div style="font-size:16px;font-weight:800;margin-bottom:6px">Vincular cliente</div>'
-        + '<div style="font-size:13px;color:' + C.muted + ';line-height:1.7;margin-bottom:20px">'
-          + 'El cliente debe crear su cuenta en Vitawell primero. Ingresa su email para asignarlo a tu perfil de entrenador.'
-        + '</div>'
-        + '<div style="margin-bottom:12px">'
-          + '<label style="font-size:10px;color:' + C.muted + ';letter-spacing:2px;font-weight:800;display:block;margin-bottom:8px">EMAIL DEL CLIENTE</label>'
+    // ── Search by email ─────────────────────────────────────
+    html += '<div style="margin-bottom:20px">'
+      + '<div style="background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:18px;padding:20px">'
+        + '<div style="font-size:15px;font-weight:800;margin-bottom:4px">🔗 Vincular por email</div>'
+        + '<div style="font-size:12px;color:' + C.muted + ';margin-bottom:14px">El cliente debe tener cuenta en Vitawell.</div>'
+        + '<div style="display:flex;gap:8px">'
           + '<input id="fld-invite" type="email" value="' + (s.invite || '') + '" '
-            + 'oninput="STATE.invite=this.value" placeholder="cliente@email.com" '
-            + 'style="width:100%;box-sizing:border-box;background:' + C.bg + ';border:1.5px solid ' + C.border + ';color:#e8f4f8;padding:12px 14px;border-radius:12px;font-size:14px;font-family:Nunito,sans-serif;outline:none" '
-            + 'onfocus="this.style.borderColor=\'' + C.aqua + '\'" onblur="this.style.borderColor=\'' + C.border + '\'"/>'
+            + 'oninput="STATE.invite=this.value" placeholder="correo@cliente.com" '
+            + 'style="flex:1;background:' + C.bg + ';border:1.5px solid ' + C.border + ';color:#e8f4f8;padding:12px 14px;border-radius:12px;font-size:13px;font-family:Nunito,sans-serif;outline:none;min-width:0" '
+            + 'onfocus="this.style.borderColor=\'#00c9a7\'" onblur="this.style.borderColor=\'' + C.border + '\'"/>'
+          + '<button onclick="inviteClient()" ' + (s.saving ? 'disabled' : '') + ' style="' + btn('aqua') + ';padding:12px 18px;border-radius:12px;font-size:13px;white-space:nowrap;flex-shrink:0">'
+            + (s.saving ? '⏳' : 'Vincular →') + '</button>'
         + '</div>'
-        + '<button onclick="inviteClient()" style="' + btn('aqua') + ';width:100%;border-radius:12px;padding:14px;font-size:14px">Vincular cliente →</button>'
       + '</div>'
     + '</div>';
+
+    // ── Discover: clients without trainer ───────────────────────
+    var pool = s.clientPool || [];
+    if (pool.length) {
+      html += '<div style="background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:18px;padding:20px">'
+        + '<div style="font-size:14px;font-weight:800;margin-bottom:4px">👥 Clientes sin entrenador</div>'
+        + '<div style="font-size:11px;color:' + C.muted + ';margin-bottom:14px">Registrados en Vitawell y disponibles para vincular.</div>'
+        + '<div style="display:flex;flex-direction:column;gap:8px">';
+
+      pool.forEach(function(cl) {
+        var init = (cl.full_name || cl.email || '?')[0].toUpperCase();
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:' + C.bg + ';border-radius:12px;border:1px solid ' + C.border + '">'
+          + '<div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,' + C.aqua + '22,' + C.lime + '22);border:1.5px solid ' + C.border + ';display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;color:' + C.aqua + ';flex-shrink:0">' + init + '</div>'
+          + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:13px;font-weight:800">' + (cl.full_name || '—') + '</div>'
+            + '<div style="font-size:11px;color:' + C.muted + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + cl.email + '</div>'
+          + '</div>'
+          + '<button onclick="linkClient(\''+cl.id+'\')" style="' + btn('aqua') + ';padding:8px 14px;font-size:11px;border-radius:10px;flex-shrink:0">+ Vincular</button>'
+        + '</div>';
+      });
+
+      html += '</div></div>';
+    } else {
+      html += '<div style="text-align:center;padding:30px;background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:18px">'
+        + '<div style="font-size:32px;margin-bottom:8px">👥</div>'
+        + '<div style="font-size:13px;color:' + C.muted + '">Todos los clientes ya tienen entrenador asignado.</div>'
+        + '</div>';
+    }
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -2547,15 +2626,21 @@ async function deleteClientProfile(clientId) {
 }
 
 async function assignClient(clientId) {
-  var r = await SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', clientId);
-  if (r.error) { toast('Error: '+r.error.message,'err'); return; }
+  var upd = await SB.from('profiles')
+    .update({trainer_id: STATE.user.id})
+    .eq('id', clientId)
+    .select();
+  if (upd.error || !upd.data || !upd.data.length) {
+    var msg = upd.error ? friendlyError(upd.error.message) : 'Sin permisos RLS. Ejecuta fix_linking_rls.sql';
+    toast('Error: ' + msg, 'err'); return;
+  }
   STATE.clients = STATE.clients.map(function(c){
     return c.id===clientId ? Object.assign({},c,{trainer_id:STATE.user.id}) : c;
   });
   if (STATE.selectedClient && STATE.selectedClient.id===clientId) {
     STATE.selectedClient = Object.assign({},STATE.selectedClient,{trainer_id:STATE.user.id});
   }
-  toast('Cliente asignado a tu perfil ✅');
+  toast('Cliente asignado ✅');
   render();
 }
 
