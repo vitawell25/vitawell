@@ -3816,15 +3816,23 @@ async function submitNewPassword() {
     set({error:'Las contraseñas no coinciden'}); return;
   }
   set({saving:true, error:''});
+
+  // Verificar que la sesión de recovery sigue activa
+  var sessionCheck = await SB.auth.getSession();
+  if (!sessionCheck.data || !sessionCheck.data.session) {
+    set({saving:false, error:'El enlace expiró. Solicita uno nuevo desde ¿Olvidaste tu contraseña?'});
+    return;
+  }
+
   var r = await SB.auth.updateUser({password: pass});
   set({saving:false});
   if (r.error) {
     set({error: friendlyError(r.error.message)}); return;
   }
-  // Success — clear form and go to login
+  // Éxito
   toast('Contraseña actualizada ✅ Inicia sesión');
-  set({authMode:'login', error:'', form:{name:'',email:'',pass:'',role:'client'}, newPass:'', newPass2:''});
   await SB.auth.signOut();
+  set({authMode:'login', error:'', form:{name:'',email:'',pass:'',role:'client'}, newPass:'', newPass2:''});
 }
 
 
@@ -4410,32 +4418,35 @@ render();
   // Supabase añade #access_token=...&type=recovery al URL al hacer clic
   var _hash = window.location.hash || '';
   var _search = window.location.search || '';
-  if (_hash.indexOf('type=recovery') >= 0 || _search.indexOf('type=recovery') >= 0) {
-    if (window.history && window.history.replaceState) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-    setTimeout(function() {
-      set({view:'auth', authMode:'newPassword', error:''});
-    }, 400);
-    return; // No llamar getSession — esperar a que Supabase procese el token
-  }
+  var _isRecovery = _hash.indexOf('type=recovery') >= 0
+    || _search.indexOf('type=recovery') >= 0;
 
-  // ── Timeout de seguridad: si en 5s no cargó, forzar login ────────
+  // ── Timeout de seguridad ──────────────────────────────────────────
   var _initTimeout = setTimeout(function() {
     if (STATE.view === 'loading') set({view:'auth'});
   }, 5000);
 
-  // ── Inicio normal ─────────────────────────────────────────────────
+  // ── getSession siempre — Supabase lee el hash y establece la sesión
+  // Con detectSessionInUrl:true, el SDK procesa el token del hash automáticamente
   SB.auth.getSession().then(function(r) {
     clearTimeout(_initTimeout);
     try {
+      if (_isRecovery) {
+        // Limpiar hash DESPUÉS de que Supabase lo procesó
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        // Mostrar pantalla de nueva contraseña (sesión ya está activa)
+        set({view:'auth', authMode:'newPassword', error:''});
+        return;
+      }
       if (r && r.data && r.data.session && r.data.session.user) {
         loadProfile(r.data.session.user);
       } else {
         set({view:'auth'});
       }
     } catch(e) {
-      console.error('[Vitawell] loadProfile error:', e);
+      console.error('[Vitawell] init error:', e);
       set({view:'auth'});
     }
   }).catch(function(err) {
