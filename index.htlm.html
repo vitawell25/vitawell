@@ -114,7 +114,7 @@ var SB = supabase.createClient(
       persistSession: true,
       storageKey: 'vitawell-auth',
       autoRefreshToken: true,
-      detectSessionInUrl: false
+      detectSessionInUrl: true
     }
   }
 );
@@ -3792,9 +3792,10 @@ async function submitReset() {
   var email = (STATE.form.email || '').trim();
   if (!email || !email.includes('@')) { set({error:'Ingresa un email válido'}); return; }
   set({saving:true, error:''});
+  // redirectTo: Supabase will append #access_token=...&type=recovery to this URL
   var resetRedirect = window.location.hostname === 'vitawell.fit'
-    ? 'https://vitawell.fit/?reset=true'
-    : window.location.origin + '/?reset=true';
+    ? 'https://vitawell.fit'
+    : window.location.origin;
   var r = await SB.auth.resetPasswordForEmail(email, {
     redirectTo: resetRedirect
   });
@@ -4402,6 +4403,28 @@ render();
 if (window.location.protocol === 'file:') {
   setTimeout(function() { set({view:'auth'}); }, 100);
 } else {
+  // ── Detectar si viene del link de recuperación de contraseña ─────
+  // Supabase añade #access_token=...&type=recovery al URL
+  var _urlHash = window.location.hash || '';
+  var _urlSearch = window.location.search || '';
+  // ── ¿Viene del link de recuperación de contraseña? ────────────────
+  // Supabase redirige con #access_token=...&type=recovery en el hash
+  var _isRecovery = _urlHash.indexOf('type=recovery') >= 0
+    || _urlSearch.indexOf('type=recovery') >= 0;
+
+  if (_isRecovery) {
+    // Limpiar hash del URL sin recargar
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    // Dejar que Supabase procese el token del hash, luego mostrar pantalla
+    setTimeout(function() {
+      set({view:'auth', authMode:'newPassword', error:''});
+    }, 300);
+    // No llamar loadProfile — quedarse en la pantalla de nueva contraseña
+    return;
+  }
+
   // ── Timeout de seguridad: si en 4s no cargó, forzar login ──────────
   var _initTimeout = setTimeout(function() {
     if (STATE.view === 'loading') {
@@ -4409,7 +4432,7 @@ if (window.location.protocol === 'file:') {
     }
   }, 4000);
 
-  // ── Inicialización con manejo de errores ─────────────────────────
+  // ── Inicialización normal ─────────────────────────────────────────
   (function() {
     try {
       SB.auth.getSession().then(function(r) {
