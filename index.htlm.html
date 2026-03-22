@@ -3804,10 +3804,46 @@ async function submitReset() {
 }
 
 
+
+async function submitNewPassword() {
+  var pass  = (STATE.form.newPass  || '').trim();
+  var pass2 = (STATE.form.newPass2 || '').trim();
+  if (pass.length < 6) {
+    set({error:'La contraseña debe tener al menos 6 caracteres'}); return;
+  }
+  if (pass !== pass2) {
+    set({error:'Las contraseñas no coinciden'}); return;
+  }
+  set({saving:true, error:''});
+  var r = await SB.auth.updateUser({password: pass});
+  set({saving:false});
+  if (r.error) {
+    set({error: friendlyError(r.error.message)}); return;
+  }
+  // Success — clear form and go to login
+  toast('Contraseña actualizada ✅ Inicia sesión');
+  set({authMode:'login', error:'', form:{name:'',email:'',pass:'',role:'client'}, newPass:'', newPass2:''});
+  await SB.auth.signOut();
+}
+
+
+function togglePassVisibility(inputId, btnId) {
+  var inp = document.getElementById(inputId);
+  var btn = document.getElementById(btnId);
+  if (!inp) return;
+  var isPass = inp.type === 'password';
+  inp.type = isPass ? 'text' : 'password';
+  if (btn) btn.innerHTML = isPass ? EYE_OFF : EYE_ON;
+}
+
+var EYE_ON  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+var EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
 function renderAuth(app) {
   var s = STATE;
-  var isReg   = s.authMode === 'register';
-  var isReset = s.authMode === 'reset';
+  var isReg     = s.authMode === 'register';
+  var isReset   = s.authMode === 'reset';
+  var isNewPass = s.authMode === 'newPassword';
 
   var INP = 'width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:13px 16px;font-size:14px;color:#E8F4F8;font-family:Nunito,sans-serif;outline:none;';
   var LBL = 'display:block;font-size:10px;letter-spacing:2px;font-weight:700;color:rgba(232,244,248,0.45);margin-bottom:8px;';
@@ -3835,7 +3871,35 @@ function renderAuth(app) {
     // 2. FORMULARIO CARD
     +'<div style="width:100%;max-width:400px;background:#0F1520;border-radius:20px;padding:28px 28px 24px;box-shadow:0 24px 60px rgba(0,0,0,0.55),0 0 0 0.5px rgba(0,201,167,0.1);margin-bottom:24px;">';
 
-  if (isReset) {
+  if (isNewPass) {
+    html += '<div style="text-align:center;margin-bottom:22px;">'
+      +'<div style="width:48px;height:48px;border-radius:50%;background:rgba(0,201,167,0.12);border:1.5px solid rgba(0,201,167,0.3);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:22px;">🔐</div>'
+      +'<div style="font-size:15px;font-weight:800;color:#E8F4F8;margin-bottom:6px;">Nueva contraseña</div>'
+      +'<div style="font-size:12px;color:rgba(255,255,255,0.35);">Elige una contraseña segura</div>'
+    +'</div>';
+    if (s.error) html += '<div style="color:#ff6b88;font-size:12px;margin-bottom:14px;padding:10px 14px;background:rgba(255,107,136,0.07);border-radius:10px;border:1px solid rgba(255,107,136,0.15);">⚠️ '+s.error+'</div>';
+    html += '<div style="margin-bottom:16px;">'
+      +'<label style="'+LBL+'">NUEVA CONTRASEÑA</label>'
+      +'<div style="position:relative;">'
+        +'<input id="inp-newpass" type="password" oninput="STATE.form=STATE.form||{};STATE.form.newPass=this.value" placeholder="Mínimo 6 caracteres" style="'+INP+'padding-right:44px;" onfocus="this.style.borderColor=\'rgba(0,201,167,0.5)\';this.style.background=\'rgba(0,201,167,0.04)\'" onblur="this.style.borderColor=\'rgba(255,255,255,0.08)\';this.style.background=\'rgba(255,255,255,0.04)\'"/>'
+        +'<button id="btn-newpass" onclick="togglePassVisibility(\'inp-newpass\',\'btn-newpass\')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:rgba(255,255,255,0.3);cursor:pointer;padding:4px;display:flex;align-items:center;" onmouseover="this.style.color=\'#00c9a7\'" onmouseout="this.style.color=\'rgba(255,255,255,0.3)\'">'
+          + EYE_ON
+        +'</button>'
+      +'</div>'
+    +'</div>';
+    html += '<div style="margin-bottom:16px;">'
+      +'<label style="'+LBL+'">CONFIRMAR CONTRASEÑA</label>'
+      +'<div style="position:relative;">'
+        +'<input id="inp-newpass2" type="password" oninput="STATE.form=STATE.form||{};STATE.form.newPass2=this.value" placeholder="Repite tu contraseña" style="'+INP+'padding-right:44px;" onfocus="this.style.borderColor=\'rgba(0,201,167,0.5)\';this.style.background=\'rgba(0,201,167,0.04)\'" onblur="this.style.borderColor=\'rgba(255,255,255,0.08)\';this.style.background=\'rgba(255,255,255,0.04)\'"/>'
+        +'<button id="btn-newpass2" onclick="togglePassVisibility(\'inp-newpass2\',\'btn-newpass2\')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:rgba(255,255,255,0.3);cursor:pointer;padding:4px;display:flex;align-items:center;" onmouseover="this.style.color=\'#00c9a7\'" onmouseout="this.style.color=\'rgba(255,255,255,0.3)\'">'
+          + EYE_ON
+        +'</button>'
+      +'</div>'
+    +'</div>';
+    html += '<button onclick="submitNewPassword()" '+(s.saving?'disabled':'')+' style="width:100%;padding:15px;background:linear-gradient(135deg,#00c9a7,#00b894 50%,#78d96a);border:none;border-radius:12px;color:#0A0E14;font-size:14px;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif;">'
+      +(s.saving?'Guardando...':'Actualizar contraseña →')+'</button>';
+
+  } else if (isReset) {
     html += '<div style="text-align:center;margin-bottom:24px;">'
       +'<div style="font-size:15px;font-weight:800;color:#E8F4F8;margin-bottom:6px;">Recuperar contraseña</div>'
       +'<div style="font-size:13px;color:rgba(255,255,255,0.35);">Te enviamos un enlace a tu email</div></div>';
@@ -3865,7 +3929,16 @@ function renderAuth(app) {
     }
 
     html += f('Email','email',s.form.email,"setForm('email',this.value)",'correo@ejemplo.com');
-    html += f('Contraseña','password',s.form.pass,"setForm('pass',this.value)",'Mínimo 6 caracteres');
+    html += '<div style="margin-bottom:16px;">'
+      +'<label style="'+LBL+'">CONTRASEÑA</label>'
+      +'<div style="position:relative;">'
+        +'<input id="inp-pass-main" type="password" value="'+(s.form.pass||'')+'" oninput="setForm(\'pass\',this.value)" placeholder="Mínimo 6 caracteres" style="'+INP+'padding-right:44px;" />'
+        +'<button id="btn-pass-main" onclick="togglePassVisibility(\'inp-pass-main\',\'btn-pass-main\')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:rgba(255,255,255,0.3);cursor:pointer;padding:4px;line-height:0;" onmouseover="this.style.color=\'#00c9a7\'" onmouseout="this.style.color=\'rgba(255,255,255,0.3)\'">'
+          +EYE_ON
+        +'</button>'
+      +'</div>'
+    +'</div>';
+
 
     if (s.error) html += '<div style="color:#ff6b88;font-size:12px;margin-bottom:14px;padding:10px 14px;background:rgba(255,107,136,0.07);border-radius:10px;border:1px solid rgba(255,107,136,0.15);">⚠️ '+s.error+'</div>';
 
@@ -4364,6 +4437,11 @@ if (window.location.protocol === 'file:') {
 }
 
 SB.auth.onAuthStateChange(function(event, session) {
+  // ── Cuando el usuario llega del link de recuperación ──────────
+  if (event === 'PASSWORD_RECOVERY') {
+    set({view:'auth', authMode:'newPassword', error:''});
+    return;
+  }
   if (event === 'SIGNED_OUT' || !session) {
     set({view:'auth', user:null, profile:null, session:[], sessions:[]});
   } else if (event === 'SIGNED_IN' && !STATE.user) {
