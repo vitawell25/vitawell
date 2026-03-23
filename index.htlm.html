@@ -144,7 +144,30 @@ var STATE = {
   invite:'', saving:false, notif:null, error:'',
   rb:null, routineSearch:'', savingRoutine:false,
   clientDetailTab:'history', sessionAdjust:{},
-  clientPool: []
+  clientPool: [],
+  // ── Finance module state ──
+  fin: {
+    locations: [],
+    clientPlans: [],
+    income: [],
+    expenses: [],
+    staff: [],
+    classes: [],
+    // UI state
+    tab: 'dashboard',        // 'dashboard' | 'income' | 'expenses' | 'classes' | 'plans' | 'settings'
+    locationFilter: 'all',   // 'all' | location_id
+    periodFilter: 'month',   // 'week' | 'month' | 'year'
+    showAddIncome: false,
+    showAddExpense: false,
+    showAddClass: false,
+    showAddPlan: false,
+    loading: false,
+    // Forms
+    incomeForm: {client_id:'',location_id:'',amount:'',category:'mensualidad',description:'',date:'',month_ref:'',status:'paid'},
+    expenseForm: {location_id:'',amount:'',category:'arriendo',description:'',date:'',is_recurring:false},
+    classForm: {client_id:'',location_id:'',staff_id:'',date:'',time_start:'',time_end:'',notes:''},
+    planForm: {client_id:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,notes:''}
+  }
 };
 
 function set(patch, skipRender) {
@@ -1396,6 +1419,8 @@ async function loadProfile(user) {
     // Load unassigned client pool in background
     SB.from('profiles').select('id,full_name,email,role').eq('role','client').is('trainer_id',null).limit(50)
       .then(function(pr){ STATE.clientPool = (pr.data||[]).filter(function(p){ return !STATE.clients.find(function(m){return m.id===p.id;}); }); });
+    // Load finance data in background
+    _loadFinanceData(user.id);
     render();
   }
   } catch(e) {
@@ -2161,7 +2186,7 @@ function renderTrainer(app) {
     + '<div style="background:' + C.card + ';border-bottom:1px solid ' + C.border + '">'
       + '<div style="display:flex;max-width:960px;margin:0 auto">';
 
-  var TTABS = [['clients','👥 MIS CLIENTES'],['routines','📋 RUTINAS'],['invite','➕ VINCULAR'],['manage','⚙️ GESTIONAR']];
+  var TTABS = [['clients','👥 CLIENTES'],['routines','📋 RUTINAS'],['finance','💰 FINANZAS'],['invite','➕ VINCULAR'],['manage','⚙️']];
   for (var ti=0; ti<TTABS.length; ti++) {
     var tt = TTABS[ti], ttOn = s.trainerTab === tt[0];
     html += '<button onclick="set({trainerTab:\'' + tt[0] + '\'})" style="padding:12px 20px;background:transparent;border:none;border-bottom:2px solid ' + (ttOn ? C.aqua : 'transparent') + ';color:' + (ttOn ? C.aqua : C.muted) + ';font-weight:800;font-size:11px;letter-spacing:1px;cursor:pointer">' + tt[1] + '</button>';
@@ -2275,6 +2300,13 @@ function renderTrainer(app) {
   // ══════════════════════════════════════════════════════════════
   if (s.trainerTab === 'routines') {
     html += '<div id="rb-mount" style="min-height:400px"></div>';
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // TAB: FINANZAS
+  // ══════════════════════════════════════════════════════════════
+  if (s.trainerTab === 'finance') {
+    html += '<div id="finance-mount" style="min-height:400px"><div style="text-align:center;padding:40px;color:'+C.muted+'"><div class="pulse" style="font-size:28px">💰</div><div style="margin-top:8px;font-size:13px">Cargando finanzas...</div></div></div>';
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -2655,7 +2687,699 @@ function renderTrainer(app) {
   // Mount sub-components after DOM is ready
   if (s.trainerTab === 'clients') { _renderClientList(); }
   if (s.trainerTab === 'routines') { renderRoutineBuilder(); }
+  if (s.trainerTab === 'finance') { _renderFinance(); }
 }
+
+// ══════════════════════════════════════════════════════════════
+// FINANCE MODULE — Data Loading & CRUD
+// ══════════════════════════════════════════════════════════════
+
+async function _loadFinanceData(trainerId) {
+  try {
+    var tid = trainerId || (STATE.user && STATE.user.id);
+    if (!tid) return;
+    var [locR, plansR, incR, expR, staffR, classR] = await Promise.all([
+      SB.from('locations').select('*').eq('trainer_id', tid).order('name'),
+      SB.from('client_plans').select('*').eq('trainer_id', tid).order('created_at',{ascending:false}),
+      SB.from('income').select('*').eq('trainer_id', tid).order('date',{ascending:false}).limit(200),
+      SB.from('expenses').select('*').eq('trainer_id', tid).order('date',{ascending:false}).limit(200),
+      SB.from('staff').select('*').eq('trainer_id', tid),
+      SB.from('scheduled_classes').select('*').eq('trainer_id', tid).order('date',{ascending:false}).limit(100)
+    ]);
+    STATE.fin.locations = locR.data || [];
+    STATE.fin.clientPlans = plansR.data || [];
+    STATE.fin.income = incR.data || [];
+    STATE.fin.expenses = expR.data || [];
+    STATE.fin.staff = staffR.data || [];
+    STATE.fin.classes = classR.data || [];
+    STATE.fin.loading = false;
+    // Auto-create default locations if none exist
+    if (!STATE.fin.locations.length) {
+      await _initDefaultLocations(tid);
+    }
+    if (STATE.trainerTab === 'finance') _renderFinance();
+  } catch(e) {
+    console.error('[Vitawell Finance] load error:', e);
+  }
+}
+
+async function _initDefaultLocations(tid) {
+  var r = await SB.from('locations').insert([
+    {trainer_id:tid, name:'Gimnasio', type:'gym', address:''},
+    {trainer_id:tid, name:'Domicilio', type:'home', address:''}
+  ]).select();
+  if (r.data) STATE.fin.locations = r.data;
+}
+
+function _fmtCOP(n) {
+  n = +n || 0;
+  return '$' + Math.round(n).toLocaleString('es-CO');
+}
+
+function _finPeriodRange() {
+  var now = new Date();
+  var p = STATE.fin.periodFilter || 'month';
+  var start, end;
+  if (p === 'week') {
+    var day = now.getDay();
+    start = new Date(now); start.setDate(now.getDate() - day);
+    end = new Date(start); end.setDate(start.getDate() + 6);
+  } else if (p === 'year') {
+    start = new Date(now.getFullYear(), 0, 1);
+    end = new Date(now.getFullYear(), 11, 31);
+  } else {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  }
+  return { start: start.toISOString().slice(0,10), end: end.toISOString().slice(0,10) };
+}
+
+function _finFilteredIncome() {
+  var r = _finPeriodRange();
+  var locF = STATE.fin.locationFilter;
+  return (STATE.fin.income||[]).filter(function(i) {
+    if (i.date < r.start || i.date > r.end) return false;
+    if (locF !== 'all' && i.location_id !== locF) return false;
+    return true;
+  });
+}
+
+function _finFilteredExpenses() {
+  var r = _finPeriodRange();
+  var locF = STATE.fin.locationFilter;
+  return (STATE.fin.expenses||[]).filter(function(e) {
+    if (e.date < r.start || e.date > r.end) return false;
+    if (locF !== 'all' && e.location_id !== locF) return false;
+    return true;
+  });
+}
+
+function _finFilteredClasses() {
+  var r = _finPeriodRange();
+  var locF = STATE.fin.locationFilter;
+  return (STATE.fin.classes||[]).filter(function(c) {
+    if (c.date < r.start || c.date > r.end) return false;
+    if (locF !== 'all' && c.location_id !== locF) return false;
+    return true;
+  });
+}
+
+function _getLocName(id) {
+  var loc = (STATE.fin.locations||[]).find(function(l){return l.id===id;});
+  return loc ? loc.name : '—';
+}
+
+function _getClientName(id) {
+  var cl = (STATE.clients||[]).find(function(c){return c.id===id;});
+  return cl ? cl.full_name : '—';
+}
+
+function _getStaffName(id) {
+  var s = (STATE.fin.staff||[]).find(function(x){return x.id===id;});
+  return s ? s.name : '—';
+}
+
+function _finSetTab(t) { STATE.fin.tab = t; _renderFinance(); }
+function _finSetLoc(l) { STATE.fin.locationFilter = l; _renderFinance(); }
+function _finSetPeriod(p) { STATE.fin.periodFilter = p; _renderFinance(); }
+
+// ── INCOME CRUD ──
+async function _finSaveIncome() {
+  var f = STATE.fin.incomeForm;
+  if (!f.amount || +f.amount <= 0) { toast('Ingresa un monto válido','err'); return; }
+  var tid = STATE.user.id;
+  var payload = {
+    trainer_id: tid,
+    client_id: f.client_id || null,
+    location_id: f.location_id || (STATE.fin.locations[0]&&STATE.fin.locations[0].id) || null,
+    amount: +f.amount,
+    category: f.category || 'mensualidad',
+    description: f.description || null,
+    date: f.date || new Date().toISOString().slice(0,10),
+    month_ref: f.month_ref || null,
+    status: f.status || 'paid'
+  };
+  var r = await SB.from('income').insert(payload).select();
+  if (_checkAuthError(r,'saveIncome')) return;
+  if (r.error) { toast(friendlyError(r.error.message),'err'); return; }
+  STATE.fin.income = [r.data[0]].concat(STATE.fin.income);
+  STATE.fin.showAddIncome = false;
+  STATE.fin.incomeForm = {client_id:'',location_id:'',amount:'',category:'mensualidad',description:'',date:'',month_ref:'',status:'paid'};
+  toast('Ingreso registrado ✓');
+  _renderFinance();
+}
+
+async function _finDeleteIncome(id) {
+  if (!confirm('¿Eliminar este ingreso?')) return;
+  await SB.from('income').delete().eq('id', id);
+  STATE.fin.income = STATE.fin.income.filter(function(i){return i.id!==id;});
+  toast('Ingreso eliminado');
+  _renderFinance();
+}
+
+// ── EXPENSE CRUD ──
+async function _finSaveExpense() {
+  var f = STATE.fin.expenseForm;
+  if (!f.amount || +f.amount <= 0) { toast('Ingresa un monto válido','err'); return; }
+  var tid = STATE.user.id;
+  var payload = {
+    trainer_id: tid,
+    location_id: f.location_id || (STATE.fin.locations[0]&&STATE.fin.locations[0].id) || null,
+    amount: +f.amount,
+    category: f.category || 'otro',
+    description: f.description || null,
+    date: f.date || new Date().toISOString().slice(0,10),
+    is_recurring: !!f.is_recurring
+  };
+  var r = await SB.from('expenses').insert(payload).select();
+  if (_checkAuthError(r,'saveExpense')) return;
+  if (r.error) { toast(friendlyError(r.error.message),'err'); return; }
+  STATE.fin.expenses = [r.data[0]].concat(STATE.fin.expenses);
+  STATE.fin.showAddExpense = false;
+  STATE.fin.expenseForm = {location_id:'',amount:'',category:'arriendo',description:'',date:'',is_recurring:false};
+  toast('Gasto registrado ✓');
+  _renderFinance();
+}
+
+async function _finDeleteExpense(id) {
+  if (!confirm('¿Eliminar este gasto?')) return;
+  await SB.from('expenses').delete().eq('id', id);
+  STATE.fin.expenses = STATE.fin.expenses.filter(function(e){return e.id!==id;});
+  toast('Gasto eliminado');
+  _renderFinance();
+}
+
+// ── SCHEDULED CLASSES CRUD ──
+async function _finSaveClass() {
+  var f = STATE.fin.classForm;
+  if (!f.client_id) { toast('Selecciona un cliente','err'); return; }
+  var tid = STATE.user.id;
+  var payload = {
+    trainer_id: tid,
+    client_id: f.client_id,
+    location_id: f.location_id || null,
+    staff_id: f.staff_id || null,
+    date: f.date || new Date().toISOString().slice(0,10),
+    time_start: f.time_start || null,
+    time_end: f.time_end || null,
+    status: 'scheduled',
+    notes: f.notes || null
+  };
+  var r = await SB.from('scheduled_classes').insert(payload).select();
+  if (_checkAuthError(r,'saveClass')) return;
+  if (r.error) { toast(friendlyError(r.error.message),'err'); return; }
+  STATE.fin.classes = [r.data[0]].concat(STATE.fin.classes);
+  STATE.fin.showAddClass = false;
+  STATE.fin.classForm = {client_id:'',location_id:'',staff_id:'',date:'',time_start:'',time_end:'',notes:''};
+  toast('Clase programada ✓');
+  _renderFinance();
+}
+
+async function _finUpdateClassStatus(id, status) {
+  await SB.from('scheduled_classes').update({status:status}).eq('id',id);
+  STATE.fin.classes = STATE.fin.classes.map(function(c){return c.id===id?Object.assign({},c,{status:status}):c;});
+  toast(status==='completed'?'Clase completada ✓':status==='cancelled'?'Clase cancelada':'Estado actualizado');
+  _renderFinance();
+}
+
+async function _finDeleteClass(id) {
+  if (!confirm('¿Eliminar esta clase?')) return;
+  await SB.from('scheduled_classes').delete().eq('id', id);
+  STATE.fin.classes = STATE.fin.classes.filter(function(c){return c.id!==id;});
+  toast('Clase eliminada');
+  _renderFinance();
+}
+
+// ── CLIENT PLANS CRUD ──
+async function _finSavePlan() {
+  var f = STATE.fin.planForm;
+  if (!f.client_id) { toast('Selecciona un cliente','err'); return; }
+  if (!f.monthly_fee || +f.monthly_fee <= 0) { toast('Ingresa el monto mensual','err'); return; }
+  var tid = STATE.user.id;
+  var payload = {
+    trainer_id: tid,
+    client_id: f.client_id,
+    location_id: f.location_id || null,
+    monthly_fee: +f.monthly_fee,
+    sessions_per_week: +f.sessions_per_week || 3,
+    payment_day: +f.payment_day || 1,
+    notes: f.notes || null
+  };
+  var r = await SB.from('client_plans').insert(payload).select();
+  if (_checkAuthError(r,'savePlan')) return;
+  if (r.error) { toast(friendlyError(r.error.message),'err'); return; }
+  STATE.fin.clientPlans = [r.data[0]].concat(STATE.fin.clientPlans);
+  STATE.fin.showAddPlan = false;
+  STATE.fin.planForm = {client_id:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,notes:''};
+  toast('Plan guardado ✓');
+  _renderFinance();
+}
+
+async function _finDeletePlan(id) {
+  if (!confirm('¿Eliminar este plan?')) return;
+  await SB.from('client_plans').delete().eq('id', id);
+  STATE.fin.clientPlans = STATE.fin.clientPlans.filter(function(p){return p.id!==id;});
+  toast('Plan eliminado');
+  _renderFinance();
+}
+
+// ── STAFF CRUD ──
+async function _finSaveStaff(name, payType, payAmount, locationId) {
+  var tid = STATE.user.id;
+  var r = await SB.from('staff').insert({
+    trainer_id:tid, name:name, pay_type:payType||'fixed',
+    pay_amount:+payAmount||0, location_id:locationId||null
+  }).select();
+  if (r.data) STATE.fin.staff = STATE.fin.staff.concat(r.data);
+  toast('Ayudante registrado ✓');
+  _renderFinance();
+}
+
+// ══════════════════════════════════════════════════════════════
+// FINANCE MODULE — Renderer
+// ══════════════════════════════════════════════════════════════
+function _renderFinance() {
+  var mount = document.getElementById('finance-mount');
+  if (!mount) return;
+  var s = STATE;
+  var fin = s.fin;
+  var now = new Date();
+  var todayStr = now.toISOString().slice(0,10);
+
+  // Filtered data
+  var incFiltered = _finFilteredIncome();
+  var expFiltered = _finFilteredExpenses();
+  var clsFiltered = _finFilteredClasses();
+  var totalIncome = incFiltered.reduce(function(a,i){return a+(+i.amount||0);},0);
+  var totalExpense = expFiltered.reduce(function(a,e){return a+(+e.amount||0);},0);
+  var netProfit = totalIncome - totalExpense;
+  var todayClasses = (fin.classes||[]).filter(function(c){return c.date===todayStr;});
+  var pendingPayments = incFiltered.filter(function(i){return i.status==='pending'||i.status==='overdue';});
+
+  var html = '';
+
+  // ── Sub-tabs ──
+  var FTABS = [['dashboard','📊 Resumen'],['income','💵 Ingresos'],['expenses','📤 Gastos'],['classes','📅 Clases'],['plans','👤 Planes']];
+  html += '<div style="display:flex;gap:0;overflow-x:auto;margin-bottom:16px;border-bottom:1px solid '+C.border+';scrollbar-width:none">';
+  FTABS.forEach(function(ft) {
+    var on = fin.tab === ft[0];
+    html += '<button onclick="_finSetTab(\''+ft[0]+'\')" style="padding:10px 16px;background:transparent;border:none;border-bottom:2.5px solid '+(on?C.aqua:'transparent')+';color:'+(on?C.aqua:C.muted)+';font-weight:800;font-size:11px;letter-spacing:.5px;cursor:pointer;white-space:nowrap;font-family:Nunito,sans-serif">'+ft[1]+'</button>';
+  });
+  html += '</div>';
+
+  // ── Period & Location filters ──
+  html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">';
+  // Period
+  [['week','Semana'],['month','Mes'],['year','Año']].forEach(function(p) {
+    var on = fin.periodFilter === p[0];
+    html += '<button onclick="_finSetPeriod(\''+p[0]+'\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid '+(on?C.lime:C.border)+';background:'+(on?C.lime+'22':'transparent')+';color:'+(on?C.lime:C.muted)+';font-size:11px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">'+p[1]+'</button>';
+  });
+  html += '<span style="width:1px;height:20px;background:'+C.border+';margin:0 4px"></span>';
+  // Location
+  html += '<button onclick="_finSetLoc(\'all\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid '+(fin.locationFilter==='all'?C.aqua:C.border)+';background:'+(fin.locationFilter==='all'?C.aqua+'22':'transparent')+';color:'+(fin.locationFilter==='all'?C.aqua:C.muted)+';font-size:11px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">Todos</button>';
+  (fin.locations||[]).forEach(function(loc) {
+    var on = fin.locationFilter === loc.id;
+    var icon = loc.type==='gym'?'🏋️':'🏠';
+    html += '<button onclick="_finSetLoc(\''+loc.id+'\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid '+(on?C.aqua:C.border)+';background:'+(on?C.aqua+'22':'transparent')+';color:'+(on?C.aqua:C.muted)+';font-size:11px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">'+icon+' '+loc.name+'</button>';
+  });
+  html += '</div>';
+
+  // ══════════════════════════════════════════════════════════════
+  // DASHBOARD
+  // ══════════════════════════════════════════════════════════════
+  if (fin.tab === 'dashboard') {
+    // KPI Cards
+    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(4)+';gap:10px;margin-bottom:20px">';
+    var kpis = [
+      [_fmtCOP(totalIncome),'INGRESOS',C.aqua,'💵'],
+      [_fmtCOP(totalExpense),'GASTOS','#f97316','📤'],
+      [_fmtCOP(netProfit),'GANANCIA NETA',netProfit>=0?C.lime:'#ef4444','📊'],
+      [todayClasses.length,'CLASES HOY','#818cf8','📅']
+    ];
+    kpis.forEach(function(k) {
+      html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;padding:14px;text-align:center">'
+        + '<div style="font-size:18px;margin-bottom:4px">'+k[3]+'</div>'
+        + '<div style="font-size:18px;font-weight:900;color:'+k[2]+'">'+k[0]+'</div>'
+        + '<div style="font-size:9px;color:'+C.muted+';letter-spacing:1.5px;font-weight:800;margin-top:2px">'+k[1]+'</div>'
+        + '</div>';
+    });
+    html += '</div>';
+
+    // Income by location breakdown
+    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:12px;margin-bottom:20px">';
+    (fin.locations||[]).forEach(function(loc) {
+      var locInc = incFiltered.filter(function(i){return i.location_id===loc.id;}).reduce(function(a,i){return a+(+i.amount||0);},0);
+      var locExp = expFiltered.filter(function(e){return e.location_id===loc.id;}).reduce(function(a,e){return a+(+e.amount||0);},0);
+      var locNet = locInc - locExp;
+      var icon = loc.type==='gym'?'🏋️':'🏠';
+      html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px">'
+        + '<div style="font-size:14px;font-weight:800;margin-bottom:12px">'+icon+' '+loc.name+'</div>'
+        + '<div style="display:flex;flex-direction:column;gap:8px">'
+        + '<div style="display:flex;justify-content:space-between"><span style="font-size:12px;color:'+C.muted+'">Ingresos</span><span style="font-size:13px;font-weight:800;color:'+C.aqua+'">'+_fmtCOP(locInc)+'</span></div>'
+        + '<div style="display:flex;justify-content:space-between"><span style="font-size:12px;color:'+C.muted+'">Gastos</span><span style="font-size:13px;font-weight:800;color:#f97316">'+_fmtCOP(locExp)+'</span></div>'
+        + '<div style="height:1px;background:'+C.border+'"></div>'
+        + '<div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:800">Neto</span><span style="font-size:14px;font-weight:900;color:'+(locNet>=0?C.lime:'#ef4444')+'">'+_fmtCOP(locNet)+'</span></div>'
+        + '</div></div>';
+    });
+    html += '</div>';
+
+    // Pending payments warning
+    if (pendingPayments.length) {
+      html += '<div style="background:#f59e0b11;border:1px solid #f59e0b44;border-radius:14px;padding:14px;margin-bottom:16px">'
+        + '<div style="font-size:13px;font-weight:800;color:#f59e0b;margin-bottom:8px">⚠️ '+pendingPayments.length+' pago(s) pendiente(s)</div>';
+      pendingPayments.slice(0,5).forEach(function(pp) {
+        html += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px">'
+          + '<span style="color:'+C.white+'">'+_getClientName(pp.client_id)+'</span>'
+          + '<span style="color:#f59e0b;font-weight:800">'+_fmtCOP(pp.amount)+'</span>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Today's classes
+    html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+      + '<div style="font-size:14px;font-weight:800">📅 Clases de Hoy</div>'
+      + '<button onclick="STATE.fin.tab=\'classes\';STATE.fin.showAddClass=true;_renderFinance()" style="'+btn('aqua')+';padding:6px 14px;font-size:11px;border-radius:10px">+ Agregar</button>'
+      + '</div>';
+    if (!todayClasses.length) {
+      html += '<div style="text-align:center;padding:20px;color:'+C.muted+';font-size:13px">Sin clases programadas para hoy</div>';
+    } else {
+      todayClasses.forEach(function(cl) {
+        var statusCol = cl.status==='completed'?C.lime:cl.status==='cancelled'?'#ef4444':C.aqua;
+        var statusIcon = cl.status==='completed'?'✅':cl.status==='cancelled'?'❌':'🕐';
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;background:'+C.bg+';border-radius:12px;margin-bottom:6px;border:1px solid '+C.border+'">'
+          + '<div style="font-size:18px">'+statusIcon+'</div>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:13px;font-weight:800">'+_getClientName(cl.client_id)+'</div>'
+          + '<div style="font-size:11px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5):'')+' · '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤 '+_getStaffName(cl.staff_id):'')+'</div>'
+          + '</div>';
+        if (cl.status==='scheduled') {
+          html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:5px 10px;font-size:10px;border-radius:8px" title="Completar">✓</button>'
+            + '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'cancelled\')" style="'+btn('ghost')+';padding:5px 10px;font-size:10px;border-radius:8px" title="Cancelar">✗</button>';
+        }
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // INCOME TAB
+  // ══════════════════════════════════════════════════════════════
+  if (fin.tab === 'income') {
+    // Add button
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<div style="font-size:15px;font-weight:800">💵 Ingresos del período</div>'
+      + '<button onclick="STATE.fin.showAddIncome=!STATE.fin.showAddIncome;_renderFinance()" style="'+btn(fin.showAddIncome?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddIncome?'Cancelar':'+ Registrar ingreso')+'</button>'
+      + '</div>';
+
+    // Add income form
+    if (fin.showAddIncome) {
+      html += '<div class="fade" style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
+        + '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:12px">'
+        // Client select
+        + '<div><div style="'+lbl()+'">CLIENTE</div><select onchange="STATE.fin.incomeForm.client_id=this.value" style="'+inp()+';cursor:pointer"><option value="">— Seleccionar —</option>';
+      (s.clients||[]).forEach(function(cl) {
+        html += '<option value="'+cl.id+'"'+(fin.incomeForm.client_id===cl.id?' selected':'')+'>'+cl.full_name+'</option>';
+      });
+      html += '</select></div>'
+        // Location select
+        + '<div><div style="'+lbl()+'">UBICACIÓN</div><select onchange="STATE.fin.incomeForm.location_id=this.value" style="'+inp()+';cursor:pointer">';
+      (fin.locations||[]).forEach(function(loc) {
+        html += '<option value="'+loc.id+'"'+(fin.incomeForm.location_id===loc.id?' selected':'')+'>'+loc.name+'</option>';
+      });
+      html += '</select></div>'
+        // Amount
+        + '<div><div style="'+lbl()+'">MONTO (COP)</div><input type="number" value="'+(fin.incomeForm.amount||'')+'" oninput="STATE.fin.incomeForm.amount=this.value" placeholder="150000" style="'+inp()+'"/></div>'
+        // Category
+        + '<div><div style="'+lbl()+'">CATEGORÍA</div><select onchange="STATE.fin.incomeForm.category=this.value" style="'+inp()+';cursor:pointer">'
+        + '<option value="mensualidad">Mensualidad</option><option value="sesion_extra">Sesión extra</option><option value="plan_nutricional">Plan nutricional</option><option value="otro">Otro</option>'
+        + '</select></div>'
+        // Date
+        + '<div><div style="'+lbl()+'">FECHA</div><input type="date" value="'+(fin.incomeForm.date||todayStr)+'" onchange="STATE.fin.incomeForm.date=this.value" style="'+inp()+'"/></div>'
+        // Status
+        + '<div><div style="'+lbl()+'">ESTADO</div><select onchange="STATE.fin.incomeForm.status=this.value" style="'+inp()+';cursor:pointer">'
+        + '<option value="paid"'+(fin.incomeForm.status==='paid'?' selected':'')+'>✅ Pagado</option><option value="pending"'+(fin.incomeForm.status==='pending'?' selected':'')+'>⏳ Pendiente</option><option value="overdue"'+(fin.incomeForm.status==='overdue'?' selected':'')+'>⚠️ Vencido</option>'
+        + '</select></div>'
+        + '</div>'
+        // Description
+        + '<div style="margin-top:12px"><div style="'+lbl()+'">NOTA (OPCIONAL)</div><input type="text" value="'+(fin.incomeForm.description||'')+'" oninput="STATE.fin.incomeForm.description=this.value" placeholder="Ej: Pago de marzo" style="'+inp()+'"/></div>'
+        + '<button onclick="_finSaveIncome()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">💾 Guardar ingreso</button>'
+        + '</div>';
+    }
+
+    // Income total
+    html += '<div style="background:'+C.aqua+'11;border:1px solid '+C.aqua+'44;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">'
+      + '<span style="font-size:13px;font-weight:700;color:'+C.aqua+'">Total ingresos del período</span>'
+      + '<span style="font-size:18px;font-weight:900;color:'+C.aqua+'">'+_fmtCOP(totalIncome)+'</span></div>';
+
+    // Income list
+    if (!incFiltered.length) {
+      html += '<div style="text-align:center;padding:40px;color:'+C.muted+'"><div style="font-size:32px;margin-bottom:8px">💵</div><div style="font-size:13px">Sin ingresos en este período</div></div>';
+    } else {
+      incFiltered.forEach(function(inc) {
+        var statusCol = inc.status==='paid'?C.lime:inc.status==='pending'?'#f59e0b':'#ef4444';
+        var statusTxt = inc.status==='paid'?'Pagado':inc.status==='pending'?'Pendiente':'Vencido';
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;margin-bottom:8px">'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:13px;font-weight:800">'+_getClientName(inc.client_id)+'</div>'
+          + '<div style="font-size:11px;color:'+C.muted+'">'+inc.date+' · '+(inc.category||'')+' · '+_getLocName(inc.location_id)+'</div>'
+          + (inc.description?'<div style="font-size:11px;color:'+C.muted+';margin-top:2px">'+inc.description+'</div>':'')
+          + '</div>'
+          + '<div style="text-align:right;flex-shrink:0">'
+          + '<div style="font-size:15px;font-weight:900;color:'+C.aqua+'">'+_fmtCOP(inc.amount)+'</div>'
+          + '<div style="font-size:10px;font-weight:700;color:'+statusCol+'">'+statusTxt+'</div>'
+          + '</div>'
+          + '<button onclick="_finDeleteIncome(\''+inc.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px" title="Eliminar">🗑</button>'
+          + '</div>';
+      });
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // EXPENSES TAB
+  // ══════════════════════════════════════════════════════════════
+  if (fin.tab === 'expenses') {
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<div style="font-size:15px;font-weight:800">📤 Gastos del período</div>'
+      + '<button onclick="STATE.fin.showAddExpense=!STATE.fin.showAddExpense;_renderFinance()" style="'+btn(fin.showAddExpense?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddExpense?'Cancelar':'+ Registrar gasto')+'</button>'
+      + '</div>';
+
+    if (fin.showAddExpense) {
+      html += '<div class="fade" style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
+        + '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:12px">'
+        // Location
+        + '<div><div style="'+lbl()+'">UBICACIÓN</div><select onchange="STATE.fin.expenseForm.location_id=this.value" style="'+inp()+';cursor:pointer">';
+      (fin.locations||[]).forEach(function(loc) {
+        html += '<option value="'+loc.id+'"'+(fin.expenseForm.location_id===loc.id?' selected':'')+'>'+loc.name+'</option>';
+      });
+      html += '</select></div>'
+        // Category
+        + '<div><div style="'+lbl()+'">CATEGORÍA</div><select onchange="STATE.fin.expenseForm.category=this.value" style="'+inp()+';cursor:pointer">'
+        + '<option value="arriendo">🏠 Arriendo</option><option value="servicios">💡 Servicios</option><option value="equipamiento">🏋️ Equipamiento</option><option value="ayudante">👤 Ayudante</option><option value="marketing">📣 Marketing</option><option value="mantenimiento">🔧 Mantenimiento</option><option value="otro">📝 Otro</option>'
+        + '</select></div>'
+        // Amount
+        + '<div><div style="'+lbl()+'">MONTO (COP)</div><input type="number" value="'+(fin.expenseForm.amount||'')+'" oninput="STATE.fin.expenseForm.amount=this.value" placeholder="800000" style="'+inp()+'"/></div>'
+        // Date
+        + '<div><div style="'+lbl()+'">FECHA</div><input type="date" value="'+(fin.expenseForm.date||todayStr)+'" onchange="STATE.fin.expenseForm.date=this.value" style="'+inp()+'"/></div>'
+        + '</div>'
+        // Description
+        + '<div style="margin-top:12px"><div style="'+lbl()+'">DESCRIPCIÓN</div><input type="text" value="'+(fin.expenseForm.description||'')+'" oninput="STATE.fin.expenseForm.description=this.value" placeholder="Ej: Arriendo del mes" style="'+inp()+'"/></div>'
+        // Recurring
+        + '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;font-size:13px;color:'+C.muted+'">'
+        + '<input type="checkbox" '+(fin.expenseForm.is_recurring?'checked':'')+' onchange="STATE.fin.expenseForm.is_recurring=this.checked" style="accent-color:'+C.aqua+'"/> Gasto recurrente (mensual)'
+        + '</label>'
+        + '<button onclick="_finSaveExpense()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">💾 Guardar gasto</button>'
+        + '</div>';
+    }
+
+    // Expense total
+    html += '<div style="background:#f9731611;border:1px solid #f9731644;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">'
+      + '<span style="font-size:13px;font-weight:700;color:#f97316">Total gastos del período</span>'
+      + '<span style="font-size:18px;font-weight:900;color:#f97316">'+_fmtCOP(totalExpense)+'</span></div>';
+
+    // Expenses list
+    if (!expFiltered.length) {
+      html += '<div style="text-align:center;padding:40px;color:'+C.muted+'"><div style="font-size:32px;margin-bottom:8px">📤</div><div style="font-size:13px">Sin gastos en este período</div></div>';
+    } else {
+      var catIcons = {arriendo:'🏠',servicios:'💡',equipamiento:'🏋️',ayudante:'👤',marketing:'📣',mantenimiento:'🔧',otro:'📝'};
+      expFiltered.forEach(function(exp) {
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;margin-bottom:8px">'
+          + '<div style="width:36px;height:36px;border-radius:10px;background:#f9731622;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+(catIcons[exp.category]||'📝')+'</div>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:13px;font-weight:800">'+(exp.description||exp.category)+'</div>'
+          + '<div style="font-size:11px;color:'+C.muted+'">'+exp.date+' · '+_getLocName(exp.location_id)+(exp.is_recurring?' · 🔄 Recurrente':'')+'</div>'
+          + '</div>'
+          + '<div style="font-size:15px;font-weight:900;color:#f97316;flex-shrink:0">'+_fmtCOP(exp.amount)+'</div>'
+          + '<button onclick="_finDeleteExpense(\''+exp.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px" title="Eliminar">🗑</button>'
+          + '</div>';
+      });
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // CLASSES TAB
+  // ══════════════════════════════════════════════════════════════
+  if (fin.tab === 'classes') {
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<div style="font-size:15px;font-weight:800">📅 Clases programadas</div>'
+      + '<button onclick="STATE.fin.showAddClass=!STATE.fin.showAddClass;_renderFinance()" style="'+btn(fin.showAddClass?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddClass?'Cancelar':'+ Nueva clase')+'</button>'
+      + '</div>';
+
+    if (fin.showAddClass) {
+      html += '<div class="fade" style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
+        + '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:12px">'
+        // Client
+        + '<div><div style="'+lbl()+'">CLIENTE</div><select onchange="STATE.fin.classForm.client_id=this.value" style="'+inp()+';cursor:pointer"><option value="">— Seleccionar —</option>';
+      (s.clients||[]).forEach(function(cl) {
+        html += '<option value="'+cl.id+'"'+(fin.classForm.client_id===cl.id?' selected':'')+'>'+cl.full_name+'</option>';
+      });
+      html += '</select></div>'
+        // Location
+        + '<div><div style="'+lbl()+'">UBICACIÓN</div><select onchange="STATE.fin.classForm.location_id=this.value" style="'+inp()+';cursor:pointer">';
+      (fin.locations||[]).forEach(function(loc) {
+        html += '<option value="'+loc.id+'"'+(fin.classForm.location_id===loc.id?' selected':'')+'>'+loc.name+'</option>';
+      });
+      html += '</select></div>'
+        // Date
+        + '<div><div style="'+lbl()+'">FECHA</div><input type="date" value="'+(fin.classForm.date||todayStr)+'" onchange="STATE.fin.classForm.date=this.value" style="'+inp()+'"/></div>'
+        // Time start
+        + '<div><div style="'+lbl()+'">HORA INICIO</div><input type="time" value="'+(fin.classForm.time_start||'')+'" onchange="STATE.fin.classForm.time_start=this.value" style="'+inp()+'"/></div>'
+        // Time end
+        + '<div><div style="'+lbl()+'">HORA FIN</div><input type="time" value="'+(fin.classForm.time_end||'')+'" onchange="STATE.fin.classForm.time_end=this.value" style="'+inp()+'"/></div>';
+      // Staff (only if staff exists)
+      if ((fin.staff||[]).length) {
+        html += '<div><div style="'+lbl()+'">¿QUIÉN DA LA CLASE?</div><select onchange="STATE.fin.classForm.staff_id=this.value" style="'+inp()+';cursor:pointer"><option value="">Yo</option>';
+        fin.staff.forEach(function(st) {
+          html += '<option value="'+st.id+'">'+st.name+'</option>';
+        });
+        html += '</select></div>';
+      }
+      html += '</div>'
+        + '<div style="margin-top:12px"><div style="'+lbl()+'">NOTA</div><input type="text" value="'+(fin.classForm.notes||'')+'" oninput="STATE.fin.classForm.notes=this.value" placeholder="Ej: Enfoque en piernas" style="'+inp()+'"/></div>'
+        + '<button onclick="_finSaveClass()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">📅 Programar clase</button>'
+        + '</div>';
+    }
+
+    // Classes list
+    if (!clsFiltered.length) {
+      html += '<div style="text-align:center;padding:40px;color:'+C.muted+'"><div style="font-size:32px;margin-bottom:8px">📅</div><div style="font-size:13px">Sin clases en este período</div></div>';
+    } else {
+      // Group by date
+      var byDate = {};
+      clsFiltered.forEach(function(c) {
+        if (!byDate[c.date]) byDate[c.date] = [];
+        byDate[c.date].push(c);
+      });
+      Object.keys(byDate).sort().reverse().forEach(function(date) {
+        var isToday = date === todayStr;
+        html += '<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;color:'+(isToday?C.lime:C.muted)+';margin:14px 0 8px">'+(isToday?'📍 HOY':date)+'</div>';
+        byDate[date].forEach(function(cl) {
+          var statusCol = cl.status==='completed'?C.lime:cl.status==='cancelled'?'#ef444488':cl.status==='no_show'?'#f59e0b':C.aqua;
+          var statusLabel = cl.status==='completed'?'✅ Completada':cl.status==='cancelled'?'❌ Cancelada':cl.status==='no_show'?'⚠️ No asistió':'🕐 Programada';
+          html += '<div style="display:flex;align-items:center;gap:10px;padding:12px;background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;margin-bottom:6px">'
+            + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:13px;font-weight:800">'+_getClientName(cl.client_id)+'</div>'
+            + '<div style="font-size:11px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5)+' - '+(cl.time_end?cl.time_end.slice(0,5):''):'')+' · '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤 '+_getStaffName(cl.staff_id):'')+'</div>'
+            + '<div style="font-size:10px;color:'+statusCol+';font-weight:700;margin-top:2px">'+statusLabel+'</div>'
+            + '</div>';
+          if (cl.status==='scheduled') {
+            html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:6px 10px;font-size:10px;border-radius:8px">✓</button>'
+              + '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'no_show\')" style="'+btn('ghost')+';padding:6px 10px;font-size:10px;border-radius:8px">NS</button>';
+          }
+          html += '<button onclick="_finDeleteClass(\''+cl.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:13px;cursor:pointer;padding:4px">🗑</button>';
+          html += '</div>';
+        });
+      });
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // PLANS TAB
+  // ══════════════════════════════════════════════════════════════
+  if (fin.tab === 'plans') {
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+      + '<div style="font-size:15px;font-weight:800">👤 Planes de clientes</div>'
+      + '<button onclick="STATE.fin.showAddPlan=!STATE.fin.showAddPlan;_renderFinance()" style="'+btn(fin.showAddPlan?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddPlan?'Cancelar':'+ Nuevo plan')+'</button>'
+      + '</div>';
+
+    if (fin.showAddPlan) {
+      html += '<div class="fade" style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
+        + '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:12px">'
+        // Client
+        + '<div><div style="'+lbl()+'">CLIENTE</div><select onchange="STATE.fin.planForm.client_id=this.value" style="'+inp()+';cursor:pointer"><option value="">— Seleccionar —</option>';
+      (s.clients||[]).forEach(function(cl) {
+        html += '<option value="'+cl.id+'"'+(fin.planForm.client_id===cl.id?' selected':'')+'>'+cl.full_name+'</option>';
+      });
+      html += '</select></div>'
+        // Location
+        + '<div><div style="'+lbl()+'">UBICACIÓN</div><select onchange="STATE.fin.planForm.location_id=this.value" style="'+inp()+';cursor:pointer">';
+      (fin.locations||[]).forEach(function(loc) {
+        html += '<option value="'+loc.id+'"'+(fin.planForm.location_id===loc.id?' selected':'')+'>'+loc.name+'</option>';
+      });
+      html += '</select></div>'
+        // Monthly fee
+        + '<div><div style="'+lbl()+'">MENSUALIDAD (COP)</div><input type="number" value="'+(fin.planForm.monthly_fee||'')+'" oninput="STATE.fin.planForm.monthly_fee=this.value" placeholder="150000" style="'+inp()+'"/></div>'
+        // Sessions per week
+        + '<div><div style="'+lbl()+'">SESIONES POR SEMANA</div><input type="number" min="1" max="7" value="'+(fin.planForm.sessions_per_week||3)+'" oninput="STATE.fin.planForm.sessions_per_week=this.value" style="'+inp()+'"/></div>'
+        // Payment day
+        + '<div><div style="'+lbl()+'">DÍA DE PAGO (1-31)</div><input type="number" min="1" max="31" value="'+(fin.planForm.payment_day||1)+'" oninput="STATE.fin.planForm.payment_day=this.value" style="'+inp()+'"/></div>'
+        // Notes
+        + '<div><div style="'+lbl()+'">NOTAS</div><input type="text" value="'+(fin.planForm.notes||'')+'" oninput="STATE.fin.planForm.notes=this.value" placeholder="Ej: Plan premium" style="'+inp()+'"/></div>'
+        + '</div>'
+        + '<button onclick="_finSavePlan()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">💾 Guardar plan</button>'
+        + '</div>';
+    }
+
+    // Expected monthly income from plans
+    var expectedMonthly = (fin.clientPlans||[]).filter(function(p){return p.active;}).reduce(function(a,p){return a+(+p.monthly_fee||0);},0);
+    html += '<div style="background:'+C.lime+'11;border:1px solid '+C.lime+'44;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">'
+      + '<span style="font-size:13px;font-weight:700;color:'+C.lime+'">Ingreso mensual esperado</span>'
+      + '<span style="font-size:18px;font-weight:900;color:'+C.lime+'">'+_fmtCOP(expectedMonthly)+'</span></div>';
+
+    // Plans list
+    if (!(fin.clientPlans||[]).length) {
+      html += '<div style="text-align:center;padding:40px;color:'+C.muted+'"><div style="font-size:32px;margin-bottom:8px">👤</div><div style="font-size:13px">Sin planes registrados</div></div>';
+    } else {
+      (fin.clientPlans||[]).forEach(function(plan) {
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:14px;background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;margin-bottom:8px">'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:14px;font-weight:800">'+_getClientName(plan.client_id)+'</div>'
+          + '<div style="font-size:11px;color:'+C.muted+'">'+_getLocName(plan.location_id)+' · '+plan.sessions_per_week+'x/sem · Paga día '+plan.payment_day+'</div>'
+          + (plan.notes?'<div style="font-size:11px;color:'+C.muted+';margin-top:2px">'+plan.notes+'</div>':'')
+          + '</div>'
+          + '<div style="font-size:16px;font-weight:900;color:'+C.aqua+';flex-shrink:0">'+_fmtCOP(plan.monthly_fee)+'</div>'
+          + '<button onclick="_finDeletePlan(\''+plan.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px">🗑</button>'
+          + '</div>';
+      });
+    }
+
+    // Staff section
+    html += '<div style="margin-top:24px;padding-top:16px;border-top:1px solid '+C.border+'">'
+      + '<div style="font-size:14px;font-weight:800;margin-bottom:12px">👤 Personal / Ayudante</div>';
+    if (!(fin.staff||[]).length) {
+      html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;padding:16px;text-align:center">'
+        + '<div style="font-size:13px;color:'+C.muted+';margin-bottom:12px">Aún no tienes personal registrado</div>'
+        + '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
+        + '<input id="staff-name" type="text" placeholder="Nombre del ayudante" style="'+inp()+';max-width:180px"/>'
+        + '<input id="staff-pay" type="number" placeholder="Pago mensual" style="'+inp()+';max-width:140px"/>'
+        + '<button onclick="_finSaveStaff(document.getElementById(\'staff-name\').value,\'fixed\',document.getElementById(\'staff-pay\').value,(STATE.fin.locations.find(function(l){return l.type===\'gym\';}) || {}).id)" style="'+btn('aqua')+';padding:10px 16px;font-size:12px;border-radius:10px">+ Agregar</button>'
+        + '</div></div>';
+    } else {
+      (fin.staff||[]).forEach(function(st) {
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;margin-bottom:6px">'
+          + '<div style="width:36px;height:36px;border-radius:50%;background:'+C.aqua+'22;display:flex;align-items:center;justify-content:center;font-size:16px">👤</div>'
+          + '<div style="flex:1"><div style="font-size:13px;font-weight:800">'+st.name+'</div><div style="font-size:11px;color:'+C.muted+'">'+_getLocName(st.location_id)+' · '+(st.pay_type==='fixed'?'Fijo':'%')+': '+_fmtCOP(st.pay_amount)+'</div></div>'
+          + '</div>';
+      });
+    }
+    html += '</div>';
+  }
+
+  mount.innerHTML = html;
+}
+
 
 // ── Client list renderer (no full re-render on search) ─────────────
 function _renderClientList() {
