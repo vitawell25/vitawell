@@ -165,6 +165,7 @@ var STATE = {
     showAddPlan: false,
     showAddManualClient: false,
     showAddSupplement: false,
+    classesDate: null,  // null = today
     loading: false,
     // Forms
     incomeForm: {client_id:'',manual_client_id:'',client_name:'',location_id:'',amount:'',category:'mensualidad',description:'',date:'',month_ref:'',status:'paid'},
@@ -3150,6 +3151,38 @@ function _finCancelEdit() {
   _renderFinance();
 }
 
+// ── DAY VIEW helpers ──
+function _classesViewDate() {
+  return STATE.fin.classesDate || new Date().toISOString().slice(0,10);
+}
+function _classesNavDay(offset) {
+  var d = new Date(_classesViewDate());
+  d.setDate(d.getDate() + offset);
+  STATE.fin.classesDate = d.toISOString().slice(0,10);
+  _renderFinance();
+}
+function _classesGoToday() {
+  STATE.fin.classesDate = null;
+  _renderFinance();
+}
+function _classesSetDate(val) {
+  STATE.fin.classesDate = val;
+  _renderFinance();
+}
+var _DAY_NAMES = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+var _MONTH_NAMES_S = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+function _quickAddClass(hour) {
+  var viewDate = _classesViewDate();
+  STATE.fin.classForm.date = viewDate;
+  STATE.fin.classForm.time_start = _padZ(hour) + ':00';
+  STATE.fin.classForm.time_end = _padZ(hour + 1) + ':00';
+  STATE.fin.showAddClass = true;
+  _renderFinance();
+  // scroll to form
+  setTimeout(function(){ var el=document.getElementById('class-form-mount'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 100);
+}
+
 // ── SUPPLEMENTS CRUD ──
 async function _finSaveSupplement() {
   var f = STATE.fin.supplementForm;
@@ -3750,20 +3783,61 @@ function _renderFinance() {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // CLASSES TAB
+  // CLASSES TAB — Day View Agenda
   // ══════════════════════════════════════════════════════════════
   if (fin.tab === 'classes') {
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-      + '<div style="font-size:15px;font-weight:800">📅 Clases</div>'
-      + '<div style="display:flex;gap:6px">'
-      + '<button onclick="_exportTodayClasses()" style="'+btn('ghost')+';padding:8px 14px;font-size:11px;border-radius:10px" title="Exportar clases de hoy al calendario">📅 Hoy</button>'
-      + '<button onclick="STATE.fin.showAddClass=!STATE.fin.showAddClass;_renderFinance()" style="'+btn(fin.showAddClass?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddClass?'Cancelar':'+ Nueva')+'</button>'
-      + '</div></div>';
+    var viewDate = _classesViewDate();
+    var viewD = new Date(viewDate + 'T12:00:00');
+    var dayName = _DAY_NAMES[viewD.getDay()];
+    var dayNum = viewD.getDate();
+    var monthName = _MONTH_NAMES_S[viewD.getMonth()];
+    var isToday = viewDate === todayStr;
+    var isTomorrow = (function(){ var t=new Date(); t.setDate(t.getDate()+1); return viewDate===t.toISOString().slice(0,10); })();
+    var dayLabel = isToday ? 'Hoy' : isTomorrow ? 'Mañana' : dayName;
 
+    // Day classes for this view date
+    var dayClasses = (fin.classes||[]).filter(function(c){return c.date===viewDate;});
+    var dayByHour = {};
+    dayClasses.forEach(function(c) {
+      var h = c.time_start ? parseInt(c.time_start.split(':')[0]) : 8;
+      if (!dayByHour[h]) dayByHour[h] = [];
+      dayByHour[h].push(c);
+    });
+
+    // ── Date navigation header ──
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+      + '<button onclick="_classesNavDay(-1)" style="'+btn('ghost')+';padding:10px 14px;font-size:16px;border-radius:10px">◀</button>'
+      + '<div style="text-align:center;flex:1">'
+      + '<div style="font-size:20px;font-weight:900;color:'+(isToday?C.aqua:C.white)+'">'+dayLabel+'</div>'
+      + '<div style="font-size:13px;color:'+C.muted+';margin-top:2px">'+dayNum+' '+monthName+' '+viewD.getFullYear()+'</div>'
+      + '</div>'
+      + '<button onclick="_classesNavDay(1)" style="'+btn('ghost')+';padding:10px 14px;font-size:16px;border-radius:10px">▶</button>'
+      + '</div>';
+
+    // ── Quick actions ──
+    html += '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">';
+    if (!isToday) html += '<button onclick="_classesGoToday()" style="'+btn('ghost')+';padding:6px 14px;font-size:11px;border-radius:10px">📍 Ir a Hoy</button>';
+    html += '<input type="date" value="'+viewDate+'" onchange="_classesSetDate(this.value)" style="background:'+C.dark+';border:1px solid '+C.border+';color:'+C.white+';padding:6px 12px;border-radius:10px;font-size:11px;font-family:Nunito,sans-serif"/>'
+      + '<button onclick="_exportTodayClasses()" style="'+btn('ghost')+';padding:6px 14px;font-size:11px;border-radius:10px">📅 Exportar día</button>'
+      + '</div>';
+
+    // ── Summary bar ──
+    var completedCount = dayClasses.filter(function(c){return c.status==='completed';}).length;
+    var scheduledCount = dayClasses.filter(function(c){return c.status==='scheduled';}).length;
+    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(3)+';gap:8px;margin-bottom:16px">';
+    [[dayClasses.length,'TOTAL',C.aqua],[scheduledCount,'PENDIENTES','#f59e0b'],[completedCount,'COMPLETADAS',C.lime]].forEach(function(s) {
+      html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:10px;padding:10px;text-align:center">'
+        + '<div style="font-size:20px;font-weight:900;color:'+s[2]+'">'+s[0]+'</div>'
+        + '<div style="font-size:9px;color:'+C.muted+';letter-spacing:1px;font-weight:800">'+s[1]+'</div></div>';
+    });
+    html += '</div>';
+
+    // ── Add class form (collapsible) ──
     if (fin.showAddClass) {
-      html += '<div class="fade" style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
+      html += '<div id="class-form-mount" class="fade" style="background:'+C.card+';border:1px solid '+C.aqua+'44;border-radius:16px;padding:16px;margin-bottom:16px">'
+        + '<div style="font-size:13px;font-weight:800;margin-bottom:12px;color:'+C.aqua+'">📅 Nueva clase — '+dayLabel+' '+dayNum+' '+monthName+'</div>'
         + '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:12px">'
-        + '<div><div style="'+lbl()+'">CLIENTE</div><select onchange="var v=this.value;if(v.startsWith(\'mc:\')){STATE.fin.classForm.manual_client_id=v.slice(3);STATE.fin.classForm.client_id=\'\';STATE.fin.classForm.client_name=\'\'}else{STATE.fin.classForm.client_id=v;STATE.fin.classForm.manual_client_id=\'\';STATE.fin.classForm.client_name=\'\'}" style="'+inp()+';cursor:pointer"><option value="">— Seleccionar —</option>';
+        + '<div><div style="'+lbl()+'">CLIENTE</div><select onchange="var v=this.value;if(v.startsWith(\'mc:\')){STATE.fin.classForm.manual_client_id=v.slice(3);STATE.fin.classForm.client_id=\'\'}else{STATE.fin.classForm.client_id=v;STATE.fin.classForm.manual_client_id=\'\'}" style="'+inp()+';cursor:pointer"><option value="">— Seleccionar —</option>';
       allClients.forEach(function(cl) {
         var val = cl.type==='manual'?'mc:'+cl.id:cl.id;
         html += '<option value="'+val+'">'+cl.name+(cl.type==='manual'?' 📋':'')+'</option>';
@@ -3774,45 +3848,65 @@ function _renderFinance() {
         html += '<option value="'+loc.id+'"'+(i===0?' selected':'')+'>'+loc.name+'</option>';
       });
       html += '</select></div>'
-        + '<div><div style="'+lbl()+'">FECHA</div><input type="date" value="'+(fin.classForm.date||todayStr)+'" onchange="STATE.fin.classForm.date=this.value" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">HORA INICIO</div><input type="time" value="'+(fin.classForm.time_start||'')+'" onchange="STATE.fin.classForm.time_start=this.value" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">HORA FIN</div><input type="time" value="'+(fin.classForm.time_end||'')+'" onchange="STATE.fin.classForm.time_end=this.value" style="'+inp()+'"/></div>';
       if ((fin.staff||[]).length) {
-        html += '<div><div style="'+lbl()+'">¿QUIÉN DA LA CLASE?</div><select onchange="STATE.fin.classForm.staff_id=this.value" style="'+inp()+';cursor:pointer"><option value="">Yo</option>';
+        html += '<div><div style="'+lbl()+'">¿QUIÉN?</div><select onchange="STATE.fin.classForm.staff_id=this.value" style="'+inp()+';cursor:pointer"><option value="">Yo</option>';
         fin.staff.forEach(function(st) { html += '<option value="'+st.id+'">'+st.name+'</option>'; });
         html += '</select></div>';
       }
       html += '</div>'
-        + '<div style="margin-top:12px"><div style="'+lbl()+'">NOTA</div><input type="text" value="'+(fin.classForm.notes||'')+'" oninput="STATE.fin.classForm.notes=this.value" placeholder="Ej: Piernas + core" style="'+inp()+'"/></div>'
-        + '<button onclick="_finSaveClass()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">📅 Programar clase</button></div>';
+        + '<div style="margin-top:10px"><div style="'+lbl()+'">NOTA</div><input type="text" value="'+(fin.classForm.notes||'')+'" oninput="STATE.fin.classForm.notes=this.value" placeholder="Ej: Piernas + core" style="'+inp()+'"/></div>'
+        + '<div style="display:flex;gap:8px;margin-top:12px">'
+        + '<button onclick="STATE.fin.showAddClass=false;_renderFinance()" style="'+btn('ghost')+';flex:1;padding:12px;border-radius:12px;font-size:13px">Cancelar</button>'
+        + '<button onclick="STATE.fin.classForm.date=\''+viewDate+'\';_finSaveClass()" style="'+btn('aqua')+';flex:1;padding:12px;border-radius:12px;font-size:13px">📅 Programar</button>'
+        + '</div></div>';
     }
 
-    if (!clsFiltered.length) {
-      html += '<div style="text-align:center;padding:40px;color:'+C.muted+'"><div style="font-size:32px;margin-bottom:8px">📅</div><div style="font-size:13px">Sin clases en este período</div></div>';
-    } else {
-      var byDate = {};
-      clsFiltered.forEach(function(c) { if (!byDate[c.date]) byDate[c.date] = []; byDate[c.date].push(c); });
-      Object.keys(byDate).sort().reverse().forEach(function(date) {
-        var isToday = date === todayStr;
-        html += '<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;color:'+(isToday?C.lime:C.muted)+';margin:14px 0 8px">'+(isToday?'📍 HOY — '+date:date)+'</div>';
-        byDate[date].forEach(function(cl) {
+    // ── Day timeline (5am - 10pm) ──
+    html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;overflow:hidden">';
+    for (var hour = 5; hour <= 22; hour++) {
+      var hourStr = _padZ(hour) + ':00';
+      var classes = dayByHour[hour] || [];
+      var hasClass = classes.length > 0;
+      var isPast = isToday && hour < now.getHours();
+      var isCurrent = isToday && hour === now.getHours();
+
+      html += '<div style="display:flex;border-bottom:1px solid '+C.border+'22;min-height:'+(hasClass?'auto':'44px')+';'+(isCurrent?'background:'+C.aqua+'08;':'')+(isPast?'opacity:.5;':'')+'">'
+        // Hour label
+        + '<div style="width:56px;padding:10px 4px;text-align:center;border-right:1px solid '+C.border+'22;flex-shrink:0">'
+        + '<div style="font-size:12px;font-weight:800;color:'+(isCurrent?C.aqua:hasClass?C.white:C.muted)+'">'+hourStr+'</div>'
+        + '</div>'
+        // Content
+        + '<div style="flex:1;padding:6px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center">';
+
+      if (hasClass) {
+        classes.forEach(function(cl) {
           var statusCol = cl.status==='completed'?C.lime:cl.status==='cancelled'?'#ef4444':C.aqua;
-          var statusLabel = cl.status==='completed'?'✅ Completada':cl.status==='cancelled'?'❌ Cancelada':cl.status==='no_show'?'⚠️ No asistió':'🕐 Programada';
-          html += '<div style="display:flex;align-items:center;gap:10px;padding:12px;background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;margin-bottom:6px">'
+          var statusIcon = cl.status==='completed'?'✅':cl.status==='cancelled'?'❌':cl.status==='no_show'?'⚠️':'🕐';
+          var locIcon = (function(){ var l=(STATE.fin.locations||[]).find(function(x){return x.id===cl.location_id;}); return l&&l.type==='gym'?'🏋️':'🏠'; })();
+
+          html += '<div style="display:flex;align-items:center;gap:8px;background:'+statusCol+'11;border:1px solid '+statusCol+'33;border-radius:10px;padding:8px 10px">'
             + '<div style="flex:1;min-width:0">'
-            + '<div style="font-size:13px;font-weight:800">'+_classClientName(cl)+'</div>'
-            + '<div style="font-size:11px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5)+(cl.time_end?' - '+cl.time_end.slice(0,5):''):'')+' · '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤 '+_getStaffName(cl.staff_id):'')+'</div>'
+            + '<div style="font-size:13px;font-weight:800;color:'+C.white+'">'+statusIcon+' '+_classClientName(cl)+'</div>'
+            + '<div style="font-size:10px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5):'')+(cl.time_end?' - '+cl.time_end.slice(0,5):'')+' '+locIcon+' '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤'+_getStaffName(cl.staff_id):'')+'</div>'
             + _classCounterHtml(cl.client_id, cl.manual_client_id)
-            + '<div style="font-size:10px;color:'+statusCol+';font-weight:700;margin-top:2px">'+statusLabel+'</div></div>';
+            + '</div>';
           if (cl.status==='scheduled') {
-            html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:6px 10px;font-size:10px;border-radius:8px">✓</button>'
-              + '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'no_show\')" style="'+btn('ghost')+';padding:6px 10px;font-size:10px;border-radius:8px">NS</button>';
+            html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:4px 8px;font-size:10px;border-radius:6px">✓</button>';
           }
-          html += '<button onclick="_addToCalendar(\''+cl.id+'\')" style="background:transparent;border:none;color:'+C.aqua+';font-size:13px;cursor:pointer;padding:4px" title="Agregar al calendario">📅</button>'
-            + '<button onclick="_finDeleteClass(\''+cl.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:13px;cursor:pointer;padding:4px">🗑</button></div>';
+          html += '<button onclick="_addToCalendar(\''+cl.id+'\')" style="background:transparent;border:none;color:'+C.aqua+'88;font-size:12px;cursor:pointer;padding:2px">📅</button>'
+            + '<button onclick="_finDeleteClass(\''+cl.id+'\')" style="background:transparent;border:none;color:#ef444466;font-size:12px;cursor:pointer;padding:2px">🗑</button>'
+            + '</div>';
         });
-      });
+      } else {
+        // Empty slot — clickable to quick-add
+        html += '<button onclick="_quickAddClass('+hour+')" style="background:transparent;border:none;color:'+C.border+';font-size:11px;cursor:pointer;padding:2px;text-align:left;width:100%;font-family:Nunito,sans-serif" title="Agregar clase a las '+hourStr+'">+ Agregar clase</button>';
+      }
+
+      html += '</div></div>';
     }
+    html += '</div>';
   }
 
   // ══════════════════════════════════════════════════════════════
