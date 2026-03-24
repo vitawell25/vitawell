@@ -2937,6 +2937,12 @@ async function _finSaveClass() {
   STATE.fin.classForm = {client_id:'',manual_client_id:'',client_name:'',location_id:'',staff_id:'',date:'',time_start:'',time_end:'',notes:''};
   toast('Clase programada ✓');
   _renderFinance();
+  // Auto-offer calendar add
+  setTimeout(function() {
+    if (confirm('¿Agregar esta clase a tu calendario? (Google/Apple)')) {
+      _addToCalendar(r.data[0].id);
+    }
+  }, 400);
 }
 
 async function _finUpdateClassStatus(id, status) {
@@ -3039,6 +3045,108 @@ async function _finToggleManualClient(id, active) {
   await SB.from('manual_clients').update({active:active}).eq('id', id);
   STATE.fin.manualClients = STATE.fin.manualClients.map(function(c){return c.id===id?Object.assign({},c,{active:active}):c;});
   toast(active?'Cliente activado':'Cliente desactivado');
+  _renderFinance();
+}
+
+// ── EDIT MANUAL CLIENT ──
+function _finEditManualClient(id) {
+  var mc = (STATE.fin.manualClients||[]).find(function(c){return c.id===id;});
+  if (!mc) return;
+  STATE.fin.editingManualClient = id;
+  STATE.fin.manualClientForm = {
+    name: mc.name || '',
+    phone: mc.phone || '',
+    email: mc.email || '',
+    location_id: mc.location_id || '',
+    monthly_fee: mc.monthly_fee || '',
+    sessions_per_week: mc.sessions_per_week || 3,
+    payment_day: mc.payment_day || 1,
+    classes_per_month: mc.classes_per_month || 12,
+    notes: mc.notes || ''
+  };
+  STATE.fin.showAddManualClient = true;
+  _renderFinance();
+}
+
+async function _finUpdateManualClient() {
+  var id = STATE.fin.editingManualClient;
+  if (!id) return;
+  var f = STATE.fin.manualClientForm;
+  if (!f.name || !f.name.trim()) { toast('Ingresa el nombre','err'); return; }
+  var payload = {
+    name: f.name.trim(),
+    phone: f.phone || null,
+    email: f.email || null,
+    location_id: f.location_id || null,
+    monthly_fee: +f.monthly_fee || 0,
+    sessions_per_week: +f.sessions_per_week || 3,
+    payment_day: +f.payment_day || 1,
+    classes_per_month: +f.classes_per_month || 12,
+    notes: f.notes || null,
+    updated_at: new Date().toISOString()
+  };
+  var r = await SB.from('manual_clients').update(payload).eq('id', id).select();
+  if (_checkAuthError(r,'updateManualClient')) return;
+  if (r.error) { toast(friendlyError(r.error.message),'err'); return; }
+  STATE.fin.manualClients = STATE.fin.manualClients.map(function(c){return c.id===id?Object.assign({},c,payload):c;});
+  STATE.fin.editingManualClient = null;
+  STATE.fin.showAddManualClient = false;
+  STATE.fin.manualClientForm = {name:'',phone:'',email:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,classes_per_month:12,notes:''};
+  toast('Cliente actualizado ✓');
+  _renderFinance();
+}
+
+// ── EDIT APP CLIENT PLAN ──
+function _finEditPlan(id) {
+  var plan = (STATE.fin.clientPlans||[]).find(function(p){return p.id===id;});
+  if (!plan) return;
+  STATE.fin.editingPlan = id;
+  STATE.fin.planForm = {
+    client_id: plan.client_id || '',
+    location_id: plan.location_id || '',
+    monthly_fee: plan.monthly_fee || '',
+    sessions_per_week: plan.sessions_per_week || 3,
+    classes_per_month: plan.classes_per_month || 12,
+    payment_day: plan.payment_day || 1,
+    notes: plan.notes || ''
+  };
+  STATE.fin.showAddPlan = true;
+  _renderFinance();
+}
+
+async function _finUpdatePlan() {
+  var id = STATE.fin.editingPlan;
+  if (!id) return;
+  var f = STATE.fin.planForm;
+  if (!f.monthly_fee || +f.monthly_fee <= 0) { toast('Ingresa el monto','err'); return; }
+  var payload = {
+    client_id: f.client_id || null,
+    location_id: f.location_id || null,
+    monthly_fee: +f.monthly_fee,
+    sessions_per_week: +f.sessions_per_week || 3,
+    classes_per_month: +f.classes_per_month || 12,
+    payment_day: +f.payment_day || 1,
+    notes: f.notes || null,
+    updated_at: new Date().toISOString()
+  };
+  var r = await SB.from('client_plans').update(payload).eq('id', id).select();
+  if (_checkAuthError(r,'updatePlan')) return;
+  if (r.error) { toast(friendlyError(r.error.message),'err'); return; }
+  STATE.fin.clientPlans = STATE.fin.clientPlans.map(function(p){return p.id===id?Object.assign({},p,payload):p;});
+  STATE.fin.editingPlan = null;
+  STATE.fin.showAddPlan = false;
+  STATE.fin.planForm = {client_id:'',location_id:'',monthly_fee:'',sessions_per_week:3,classes_per_month:12,payment_day:1,notes:''};
+  toast('Plan actualizado ✓');
+  _renderFinance();
+}
+
+function _finCancelEdit() {
+  STATE.fin.editingManualClient = null;
+  STATE.fin.editingPlan = null;
+  STATE.fin.showAddManualClient = false;
+  STATE.fin.showAddPlan = false;
+  STATE.fin.manualClientForm = {name:'',phone:'',email:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,classes_per_month:12,notes:''};
+  STATE.fin.planForm = {client_id:'',location_id:'',monthly_fee:'',sessions_per_week:3,classes_per_month:12,payment_day:1,notes:''};
   _renderFinance();
 }
 
@@ -3165,6 +3273,164 @@ function _classCounterHtml(clientId, manualClientId) {
     + '<div style="flex:1;height:4px;background:'+C.border+';border-radius:2px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+barColor+';border-radius:2px"></div></div>'
     + '<span style="font-size:10px;font-weight:800;color:'+barColor+';white-space:nowrap">'+info.taken+'/'+info.total+(info.finished?' ⚠️ PLAN FINALIZADO':'')+'</span>'
     + '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════
+// CALENDAR INTEGRATION — .ics + Google Calendar URL
+// ══════════════════════════════════════════════════════════════
+
+function _padZ(n) { return n < 10 ? '0' + n : '' + n; }
+
+function _toICSDate(dateStr, timeStr) {
+  // dateStr: '2026-03-23', timeStr: '10:00' → '20260323T100000'
+  var d = dateStr.replace(/-/g, '');
+  var t = timeStr ? timeStr.replace(/:/g, '') + '00' : '000000';
+  return d + 'T' + t;
+}
+
+function _buildICS(classObj) {
+  var cl = classObj;
+  var clientName = _classClientName(cl);
+  var locName = _getLocName(cl.location_id);
+  var loc = (STATE.fin.locations||[]).find(function(l){return l.id===cl.location_id;});
+  var locAddress = loc && loc.address ? loc.address : locName;
+  var staffName = cl.staff_id ? _getStaffName(cl.staff_id) : '';
+
+  var dateStr = cl.date || new Date().toISOString().slice(0,10);
+  var startTime = cl.time_start || '08:00';
+  var endTime = cl.time_end || (function() {
+    var h = parseInt(startTime.split(':')[0]) + 1;
+    return _padZ(h) + ':' + startTime.split(':')[1];
+  })();
+
+  var dtStart = _toICSDate(dateStr, startTime);
+  var dtEnd = _toICSDate(dateStr, endTime);
+  var summary = '🏋️ ' + clientName + ' — ' + locName;
+  var desc = 'Cliente: ' + clientName + '\\nUbicación: ' + locName
+    + (staffName ? '\\nEntrenador: ' + staffName : '')
+    + (cl.notes ? '\\nNota: ' + cl.notes : '');
+
+  var uid = (cl.id || Math.random().toString(36).slice(2)) + '@vitawell.fit';
+  var now = new Date();
+  var stamp = now.getFullYear() + _padZ(now.getMonth()+1) + _padZ(now.getDate()) + 'T'
+    + _padZ(now.getHours()) + _padZ(now.getMinutes()) + _padZ(now.getSeconds());
+
+  return 'BEGIN:VCALENDAR\r\n'
+    + 'VERSION:2.0\r\n'
+    + 'PRODID:-//Vitawell//Training//ES\r\n'
+    + 'BEGIN:VEVENT\r\n'
+    + 'UID:' + uid + '\r\n'
+    + 'DTSTAMP:' + stamp + '\r\n'
+    + 'DTSTART:' + dtStart + '\r\n'
+    + 'DTEND:' + dtEnd + '\r\n'
+    + 'SUMMARY:' + summary + '\r\n'
+    + 'DESCRIPTION:' + desc + '\r\n'
+    + 'LOCATION:' + locAddress + '\r\n'
+    + 'BEGIN:VALARM\r\n'
+    + 'TRIGGER:-PT30M\r\n'
+    + 'ACTION:DISPLAY\r\n'
+    + 'DESCRIPTION:Clase en 30 min: ' + clientName + '\r\n'
+    + 'END:VALARM\r\n'
+    + 'END:VEVENT\r\n'
+    + 'END:VCALENDAR';
+}
+
+function _downloadICS(classObj) {
+  var ics = _buildICS(classObj);
+  var blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  var clientName = _classClientName(classObj).replace(/[^a-zA-Z0-9]/g,'_');
+  a.download = 'clase_' + clientName + '_' + (classObj.date||'') + '.ics';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('📅 Evento descargado — ábrelo para agregar a tu calendario');
+}
+
+function _openGoogleCal(classObj) {
+  var cl = classObj;
+  var clientName = _classClientName(cl);
+  var locName = _getLocName(cl.location_id);
+  var loc = (STATE.fin.locations||[]).find(function(l){return l.id===cl.location_id;});
+  var locAddress = loc && loc.address ? loc.address : locName;
+
+  var dateStr = cl.date || new Date().toISOString().slice(0,10);
+  var startTime = cl.time_start || '08:00';
+  var endTime = cl.time_end || (function() {
+    var h = parseInt(startTime.split(':')[0]) + 1;
+    return _padZ(h) + ':' + startTime.split(':')[1];
+  })();
+
+  var dtStart = _toICSDate(dateStr, startTime);
+  var dtEnd = _toICSDate(dateStr, endTime);
+  var title = encodeURIComponent('🏋️ ' + clientName + ' — ' + locName);
+  var details = encodeURIComponent('Cliente: ' + clientName + '\nUbicación: ' + locName + (cl.notes ? '\nNota: ' + cl.notes : ''));
+  var location = encodeURIComponent(locAddress);
+
+  var url = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+    + '&text=' + title
+    + '&dates=' + dtStart + '/' + dtEnd
+    + '&details=' + details
+    + '&location=' + location
+    + '&sf=true&output=xml';
+
+  window.open(url, '_blank');
+}
+
+function _addToCalendar(classId) {
+  var cl = (STATE.fin.classes||[]).find(function(c){return c.id===classId;});
+  if (!cl) return;
+  var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (isMobile) {
+    _downloadICS(cl);
+  } else {
+    _openGoogleCal(cl);
+  }
+}
+
+function _exportTodayClasses() {
+  var todayStr = new Date().toISOString().slice(0,10);
+  var todayCls = (STATE.fin.classes||[]).filter(function(c){return c.date===todayStr && c.status==='scheduled';});
+  if (!todayCls.length) { toast('No hay clases programadas para hoy','err'); return; }
+  // Build combined ICS with all today's events
+  var now = new Date();
+  var stamp = now.getFullYear() + _padZ(now.getMonth()+1) + _padZ(now.getDate()) + 'T'
+    + _padZ(now.getHours()) + _padZ(now.getMinutes()) + _padZ(now.getSeconds());
+  var ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Vitawell//Training//ES\r\n';
+  todayCls.forEach(function(cl) {
+    var clientName = _classClientName(cl);
+    var locName = _getLocName(cl.location_id);
+    var loc = (STATE.fin.locations||[]).find(function(l){return l.id===cl.location_id;});
+    var locAddress = loc && loc.address ? loc.address : locName;
+    var startTime = cl.time_start || '08:00';
+    var endTime = cl.time_end || (_padZ(parseInt(startTime.split(':')[0])+1)+':'+startTime.split(':')[1]);
+    var dtStart = _toICSDate(cl.date, startTime);
+    var dtEnd = _toICSDate(cl.date, endTime);
+    var uid = (cl.id || Math.random().toString(36).slice(2)) + '@vitawell.fit';
+    ics += 'BEGIN:VEVENT\r\n'
+      + 'UID:' + uid + '\r\n'
+      + 'DTSTAMP:' + stamp + '\r\n'
+      + 'DTSTART:' + dtStart + '\r\n'
+      + 'DTEND:' + dtEnd + '\r\n'
+      + 'SUMMARY:🏋️ ' + clientName + ' — ' + locName + '\r\n'
+      + 'LOCATION:' + locAddress + '\r\n'
+      + 'BEGIN:VALARM\r\nTRIGGER:-PT30M\r\nACTION:DISPLAY\r\nDESCRIPTION:Clase en 30 min: ' + clientName + '\r\nEND:VALARM\r\n'
+      + 'END:VEVENT\r\n';
+  });
+  ics += 'END:VCALENDAR';
+  var blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'vitawell_clases_' + todayStr + '.ics';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('📅 ' + todayCls.length + ' clase(s) exportadas al calendario');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -3489,7 +3755,10 @@ function _renderFinance() {
   if (fin.tab === 'classes') {
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
       + '<div style="font-size:15px;font-weight:800">📅 Clases</div>'
-      + '<button onclick="STATE.fin.showAddClass=!STATE.fin.showAddClass;_renderFinance()" style="'+btn(fin.showAddClass?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddClass?'Cancelar':'+ Nueva')+'</button></div>';
+      + '<div style="display:flex;gap:6px">'
+      + '<button onclick="_exportTodayClasses()" style="'+btn('ghost')+';padding:8px 14px;font-size:11px;border-radius:10px" title="Exportar clases de hoy al calendario">📅 Hoy</button>'
+      + '<button onclick="STATE.fin.showAddClass=!STATE.fin.showAddClass;_renderFinance()" style="'+btn(fin.showAddClass?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddClass?'Cancelar':'+ Nueva')+'</button>'
+      + '</div></div>';
 
     if (fin.showAddClass) {
       html += '<div class="fade" style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
@@ -3539,7 +3808,8 @@ function _renderFinance() {
             html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:6px 10px;font-size:10px;border-radius:8px">✓</button>'
               + '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'no_show\')" style="'+btn('ghost')+';padding:6px 10px;font-size:10px;border-radius:8px">NS</button>';
           }
-          html += '<button onclick="_finDeleteClass(\''+cl.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:13px;cursor:pointer;padding:4px">🗑</button></div>';
+          html += '<button onclick="_addToCalendar(\''+cl.id+'\')" style="background:transparent;border:none;color:'+C.aqua+';font-size:13px;cursor:pointer;padding:4px" title="Agregar al calendario">📅</button>'
+            + '<button onclick="_finDeleteClass(\''+cl.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:13px;cursor:pointer;padding:4px">🗑</button></div>';
         });
       });
     }
@@ -3552,7 +3822,7 @@ function _renderFinance() {
     // ── MANUAL CLIENTS SECTION ──
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
       + '<div style="font-size:15px;font-weight:800">📋 Clientes manuales</div>'
-      + '<button onclick="STATE.fin.showAddManualClient=!STATE.fin.showAddManualClient;_renderFinance()" style="'+btn(fin.showAddManualClient?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddManualClient?'Cancelar':'+ Agregar')+'</button></div>';
+      + '<button onclick="if(STATE.fin.editingManualClient){_finCancelEdit()}else{STATE.fin.showAddManualClient=!STATE.fin.showAddManualClient;_renderFinance()}" style="'+btn(fin.showAddManualClient?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddManualClient?(fin.editingManualClient?'Cancelar edición':'Cancelar'):'+ Agregar')+'</button></div>';
 
     if (fin.showAddManualClient) {
       html += '<div class="fade" style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
@@ -3570,7 +3840,10 @@ function _renderFinance() {
         + '<div><div style="'+lbl()+'">DÍA DE PAGO</div><input type="number" min="1" max="31" value="'+(fin.manualClientForm.payment_day||1)+'" oninput="STATE.fin.manualClientForm.payment_day=this.value" style="'+inp()+'"/></div>'
         + '</div>'
         + '<div style="margin-top:12px"><div style="'+lbl()+'">NOTAS</div><input type="text" value="'+(fin.manualClientForm.notes||'')+'" oninput="STATE.fin.manualClientForm.notes=this.value" placeholder="Ej: Viene lunes, miércoles y viernes" style="'+inp()+'"/></div>'
-        + '<button onclick="_finSaveManualClient()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">👤 Guardar cliente</button></div>';
+        + '<div style="display:flex;gap:8px;margin-top:14px">'
+        + (fin.editingManualClient ? '<button onclick="_finCancelEdit()" style="'+btn('ghost')+';flex:1;padding:12px;border-radius:12px;font-size:14px">Cancelar</button>' : '')
+        + '<button onclick="'+(fin.editingManualClient?'_finUpdateManualClient()':'_finSaveManualClient()')+'" style="'+btn('aqua')+';flex:1;padding:12px;border-radius:12px;font-size:14px">'+(fin.editingManualClient?'✏️ Actualizar cliente':'👤 Guardar cliente')+'</button>'
+        + '</div></div>';
     }
 
     // Manual clients list
@@ -3601,6 +3874,7 @@ function _renderFinance() {
           + (mc.notes?'<div style="font-size:11px;color:'+C.muted+';margin-top:2px">'+mc.notes+'</div>':'')
           + '</div>'
           + '<div style="font-size:15px;font-weight:900;color:'+C.aqua+';flex-shrink:0">'+_fmtCOP(mc.monthly_fee)+'</div>'
+          + '<button onclick="_finEditManualClient(\''+mc.id+'\')" style="background:transparent;border:none;color:'+C.aqua+';font-size:14px;cursor:pointer;padding:4px" title="Editar">✏️</button>'
           + '<button onclick="_finToggleManualClient(\''+mc.id+'\','+(isActive?'false':'true')+')" style="background:transparent;border:none;color:'+(isActive?'#f59e0b':'#4ade80')+';font-size:14px;cursor:pointer;padding:4px" title="'+(isActive?'Desactivar':'Activar')+'">'+(isActive?'⏸':'▶')+'</button>'
           + '<button onclick="_finDeleteManualClient(\''+mc.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px">🗑</button></div>';
       });
@@ -3610,7 +3884,7 @@ function _renderFinance() {
     html += '<div style="margin-top:24px;padding-top:16px;border-top:1px solid '+C.border+'">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
       + '<div style="font-size:15px;font-weight:800">📱 Planes clientes app</div>'
-      + '<button onclick="STATE.fin.showAddPlan=!STATE.fin.showAddPlan;_renderFinance()" style="'+btn(fin.showAddPlan?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddPlan?'Cancelar':'+ Plan')+'</button></div>';
+      + '<button onclick="if(STATE.fin.editingPlan){_finCancelEdit()}else{STATE.fin.showAddPlan=!STATE.fin.showAddPlan;_renderFinance()}" style="'+btn(fin.showAddPlan?'ghost':'aqua')+';padding:8px 16px;font-size:12px;border-radius:10px">'+(fin.showAddPlan?(fin.editingPlan?'Cancelar edición':'Cancelar'):'+ Plan')+'</button></div>';
 
     if (fin.showAddPlan) {
       html += '<div class="fade" style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
@@ -3629,7 +3903,10 @@ function _renderFinance() {
         + '<div><div style="'+lbl()+'">DÍA DE PAGO</div><input type="number" min="1" max="31" value="'+(fin.planForm.payment_day||1)+'" oninput="STATE.fin.planForm.payment_day=this.value" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">NOTAS</div><input type="text" value="'+(fin.planForm.notes||'')+'" oninput="STATE.fin.planForm.notes=this.value" style="'+inp()+'"/></div>'
         + '</div>'
-        + '<button onclick="_finSavePlan()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">💾 Guardar plan</button></div>';
+        + '<div style="display:flex;gap:8px;margin-top:14px">'
+        + (fin.editingPlan ? '<button onclick="_finCancelEdit()" style="'+btn('ghost')+';flex:1;padding:12px;border-radius:12px;font-size:14px">Cancelar</button>' : '')
+        + '<button onclick="'+(fin.editingPlan?'_finUpdatePlan()':'_finSavePlan()')+'" style="'+btn('aqua')+';flex:1;padding:12px;border-radius:12px;font-size:14px">'+(fin.editingPlan?'✏️ Actualizar plan':'💾 Guardar plan')+'</button>'
+        + '</div></div>';
     }
 
     if (!(fin.clientPlans||[]).length) {
@@ -3643,6 +3920,7 @@ function _renderFinance() {
           + _classCounterHtml(plan.client_id, null)
           + '</div>'
           + '<div style="font-size:16px;font-weight:900;color:'+C.aqua+';flex-shrink:0">'+_fmtCOP(plan.monthly_fee)+'</div>'
+          + '<button onclick="_finEditPlan(\''+plan.id+'\')" style="background:transparent;border:none;color:'+C.aqua+';font-size:14px;cursor:pointer;padding:4px" title="Editar">✏️</button>'
           + '<button onclick="_finDeletePlan(\''+plan.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px">🗑</button></div>';
       });
     }
