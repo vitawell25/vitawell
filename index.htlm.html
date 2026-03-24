@@ -3183,6 +3183,97 @@ function _quickAddClass(hour) {
   setTimeout(function(){ var el=document.getElementById('class-form-mount'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 100);
 }
 
+// ── EDIT INCOME ──
+function _finEditIncome(id) {
+  var inc = (STATE.fin.income||[]).find(function(i){return i.id===id;});
+  if (!inc) return;
+  STATE.fin.editingIncome = id;
+  STATE.fin.incomeForm = {
+    client_id: inc.client_id||'', manual_client_id: inc.manual_client_id||'',
+    client_name: inc.client_name||'', location_id: inc.location_id||'',
+    amount: inc.amount||'', category: inc.category||'mensualidad',
+    description: inc.description||'', date: inc.date||'',
+    month_ref: inc.month_ref||'', status: inc.status||'paid'
+  };
+  STATE.fin.showAddIncome = true;
+  _renderFinance();
+}
+async function _finUpdateIncome() {
+  var id = STATE.fin.editingIncome; if (!id) return;
+  var f = STATE.fin.incomeForm;
+  if (!f.amount || +f.amount<=0) { toast('Monto inválido','err'); return; }
+  var payload = {client_id:f.client_id||null, manual_client_id:f.manual_client_id||null,
+    client_name:f.client_name||null, location_id:f.location_id||null,
+    amount:+f.amount, category:f.category||'mensualidad',
+    description:f.description||null, date:f.date||null, status:f.status||'paid'};
+  var r = await SB.from('income').update(payload).eq('id',id).select();
+  if(r.error){toast(friendlyError(r.error.message),'err');return;}
+  STATE.fin.income=STATE.fin.income.map(function(i){return i.id===id?Object.assign({},i,payload):i;});
+  STATE.fin.editingIncome=null; STATE.fin.showAddIncome=false;
+  STATE.fin.incomeForm={client_id:'',manual_client_id:'',client_name:'',location_id:'',amount:'',category:'mensualidad',description:'',date:'',month_ref:'',status:'paid'};
+  toast('Ingreso actualizado ✓'); _renderFinance();
+}
+
+// ── EDIT EXPENSE ──
+function _finEditExpense(id) {
+  var exp = (STATE.fin.expenses||[]).find(function(e){return e.id===id;});
+  if (!exp) return;
+  STATE.fin.editingExpense = id;
+  STATE.fin.expenseForm = {location_id:exp.location_id||'', amount:exp.amount||'',
+    category:exp.category||'otro', description:exp.description||'',
+    date:exp.date||'', is_recurring:!!exp.is_recurring};
+  STATE.fin.showAddExpense = true;
+  _renderFinance();
+}
+async function _finUpdateExpense() {
+  var id = STATE.fin.editingExpense; if (!id) return;
+  var f = STATE.fin.expenseForm;
+  if (!f.amount || +f.amount<=0) { toast('Monto inválido','err'); return; }
+  var payload = {location_id:f.location_id||null, amount:+f.amount,
+    category:f.category||'otro', description:f.description||null,
+    date:f.date||null, is_recurring:!!f.is_recurring};
+  var r = await SB.from('expenses').update(payload).eq('id',id).select();
+  if(r.error){toast(friendlyError(r.error.message),'err');return;}
+  STATE.fin.expenses=STATE.fin.expenses.map(function(e){return e.id===id?Object.assign({},e,payload):e;});
+  STATE.fin.editingExpense=null; STATE.fin.showAddExpense=false;
+  STATE.fin.expenseForm={location_id:'',amount:'',category:'arriendo',description:'',date:'',is_recurring:false};
+  toast('Gasto actualizado ✓'); _renderFinance();
+}
+
+// ── EDIT SUPPLEMENT ──
+function _finEditSupplement(id) {
+  var sp = (STATE.fin.supplements||[]).find(function(s){return s.id===id;});
+  if (!sp) return;
+  STATE.fin.editingSupplement = id;
+  STATE.fin.supplementForm = {product_name:sp.product_name||'', category:sp.category||'proteina',
+    sale_price:sp.sale_price||'', cost_price:sp.cost_price||'',
+    client_name:sp.client_name||'', date:sp.date||'', notes:sp.notes||''};
+  STATE.fin.showAddSupplement = true;
+  _renderFinance();
+}
+async function _finUpdateSupplement() {
+  var id = STATE.fin.editingSupplement; if (!id) return;
+  var f = STATE.fin.supplementForm;
+  if (!f.sale_price || +f.sale_price<=0) { toast('Precio inválido','err'); return; }
+  var payload = {product_name:f.product_name, category:f.category||'proteina',
+    sale_price:+f.sale_price, cost_price:+f.cost_price||0,
+    client_name:f.client_name||null, date:f.date||null, notes:f.notes||null};
+  var r = await SB.from('supplement_sales').update(payload).eq('id',id).select();
+  if(r.error){toast(friendlyError(r.error.message),'err');return;}
+  STATE.fin.supplements=STATE.fin.supplements.map(function(s){return s.id===id?Object.assign({},s,payload):s;});
+  STATE.fin.editingSupplement=null; STATE.fin.showAddSupplement=false;
+  STATE.fin.supplementForm={product_name:'',category:'proteina',sale_price:'',cost_price:'',client_name:'',date:'',notes:''};
+  toast('Venta actualizada ✓'); _renderFinance();
+}
+
+function _finCancelEditAll() {
+  STATE.fin.editingIncome=null; STATE.fin.editingExpense=null;
+  STATE.fin.editingSupplement=null; STATE.fin.editingManualClient=null; STATE.fin.editingPlan=null;
+  STATE.fin.showAddIncome=false; STATE.fin.showAddExpense=false;
+  STATE.fin.showAddSupplement=false; STATE.fin.showAddManualClient=false; STATE.fin.showAddPlan=false;
+  _renderFinance();
+}
+
 // ── SUPPLEMENTS CRUD ──
 async function _finSaveSupplement() {
   var f = STATE.fin.supplementForm;
@@ -3636,7 +3727,9 @@ function _renderFinance() {
         + '<option value="paid">✅ Pagado</option><option value="pending">⏳ Pendiente</option><option value="overdue">⚠️ Vencido</option></select></div>'
         + '</div>'
         + '<div style="margin-top:12px"><div style="'+lbl()+'">NOTA</div><input type="text" value="'+(fin.incomeForm.description||'')+'" oninput="STATE.fin.incomeForm.description=this.value" placeholder="Ej: Pago de marzo" style="'+inp()+'"/></div>'
-        + '<button onclick="_finSaveIncome()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">💾 Guardar ingreso</button></div>';
+        + '<div style="display:flex;gap:8px;margin-top:14px">'
+        + (fin.editingIncome?'<button onclick="_finCancelEditAll()" style="'+btn('ghost')+';flex:1;padding:12px;border-radius:12px;font-size:13px">Cancelar</button>':'')
+        + '<button onclick="'+(fin.editingIncome?'_finUpdateIncome()':'_finSaveIncome()')+'" style="'+btn('aqua')+';flex:1;padding:12px;border-radius:12px;font-size:14px">'+(fin.editingIncome?'✏️ Actualizar':'💾 Guardar ingreso')+'</button></div></div>';
     }
 
     html += '<div style="background:'+C.aqua+'11;border:1px solid '+C.aqua+'44;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">'
@@ -3659,6 +3752,7 @@ function _renderFinance() {
           + '<div style="text-align:right;flex-shrink:0">'
           + '<div style="font-size:15px;font-weight:900;color:'+C.aqua+'">'+_fmtCOP(inc.amount)+'</div>'
           + '<div style="font-size:10px;font-weight:700;color:'+statusCol+'">'+statusTxt+'</div></div>'
+          + '<button onclick="_finEditIncome(\''+inc.id+'\')" style="background:transparent;border:none;color:'+C.aqua+'88;font-size:14px;cursor:pointer;padding:4px">✏️</button>'
           + '<button onclick="_finDeleteIncome(\''+inc.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px">🗑</button></div>';
       });
     }
@@ -3691,7 +3785,9 @@ function _renderFinance() {
         + '<div style="margin-top:12px"><div style="'+lbl()+'">DESCRIPCIÓN</div><input type="text" value="'+(fin.expenseForm.description||'')+'" oninput="STATE.fin.expenseForm.description=this.value" placeholder="Ej: Café en Juan Valdez" style="'+inp()+'"/></div>'
         + '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;font-size:13px;color:'+C.muted+'">'
         + '<input type="checkbox" '+(fin.expenseForm.is_recurring?'checked':'')+' onchange="STATE.fin.expenseForm.is_recurring=this.checked" style="accent-color:'+C.aqua+'"/> Gasto recurrente (mensual)</label>'
-        + '<button onclick="_finSaveExpense()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">💾 Guardar gasto</button></div>';
+        + '<div style="display:flex;gap:8px;margin-top:14px">'
+        + (fin.editingExpense?'<button onclick="_finCancelEditAll()" style="'+btn('ghost')+';flex:1;padding:12px;border-radius:12px;font-size:13px">Cancelar</button>':'')
+        + '<button onclick="'+(fin.editingExpense?'_finUpdateExpense()':'_finSaveExpense()')+'" style="'+btn('aqua')+';flex:1;padding:12px;border-radius:12px;font-size:14px">'+(fin.editingExpense?'✏️ Actualizar':'💾 Guardar gasto')+'</button></div></div>';
     }
 
     // Expense breakdown by category
@@ -3722,6 +3818,7 @@ function _renderFinance() {
           + '<div style="font-size:13px;font-weight:800">'+(exp.description||_expCatLabel(exp.category))+'</div>'
           + '<div style="font-size:11px;color:'+C.muted+'">'+exp.date+' · '+_getLocName(exp.location_id)+(exp.is_recurring?' · 🔄':'')+'</div></div>'
           + '<div style="font-size:15px;font-weight:900;color:#f97316;flex-shrink:0">'+_fmtCOP(exp.amount)+'</div>'
+          + '<button onclick="_finEditExpense(\''+exp.id+'\')" style="background:transparent;border:none;color:'+C.aqua+'88;font-size:14px;cursor:pointer;padding:4px">✏️</button>'
           + '<button onclick="_finDeleteExpense(\''+exp.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px">🗑</button></div>';
       });
     }
@@ -3749,7 +3846,9 @@ function _renderFinance() {
         + '<div><div style="'+lbl()+'">CLIENTE</div><input type="text" value="'+(fin.supplementForm.client_name||'')+'" oninput="STATE.fin.supplementForm.client_name=this.value" placeholder="Nombre del cliente" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">FECHA</div><input type="date" value="'+(fin.supplementForm.date||todayStr)+'" onchange="STATE.fin.supplementForm.date=this.value" style="'+inp()+'"/></div>'
         + '</div>'
-        + '<button onclick="_finSaveSupplement()" style="'+btn('aqua')+';width:100%;padding:12px;margin-top:14px;border-radius:12px;font-size:14px">💊 Registrar venta</button></div>';
+        + '<div style="display:flex;gap:8px;margin-top:14px">'
+        + (fin.editingSupplement?'<button onclick="_finCancelEditAll()" style="'+btn('ghost')+';flex:1;padding:12px;border-radius:12px;font-size:13px">Cancelar</button>':'')
+        + '<button onclick="'+(fin.editingSupplement?'_finUpdateSupplement()':'_finSaveSupplement()')+'" style="'+btn('aqua')+';flex:1;padding:12px;border-radius:12px;font-size:14px">'+(fin.editingSupplement?'✏️ Actualizar':'💊 Registrar venta')+'</button></div></div>';
     }
 
     // Summary cards
@@ -3777,6 +3876,7 @@ function _renderFinance() {
           + '<div style="text-align:right;flex-shrink:0">'
           + '<div style="font-size:14px;font-weight:900;color:'+C.aqua+'">'+_fmtCOP(sp.sale_price)+'</div>'
           + '<div style="font-size:10px;color:'+(profit>=0?C.lime:'#ef4444')+';font-weight:700">↑ '+_fmtCOP(profit)+'</div></div>'
+          + '<button onclick="_finEditSupplement(\''+sp.id+'\')" style="background:transparent;border:none;color:'+C.aqua+'88;font-size:14px;cursor:pointer;padding:4px">✏️</button>'
           + '<button onclick="_finDeleteSupplement(\''+sp.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px">🗑</button></div>';
       });
     }
