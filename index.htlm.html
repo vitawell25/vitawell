@@ -3610,90 +3610,99 @@ function _renderFinance() {
   html += '</div>';
 
   // ══════════════════════════════════════════════════════════════
-  // DASHBOARD
+  // DASHBOARD — Complete financial overview
   // ══════════════════════════════════════════════════════════════
   if (fin.tab === 'dashboard') {
-    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(4)+';gap:10px;margin-bottom:20px">';
-    [[_fmtCOP(totalIncome),'INGRESOS',C.aqua,'💵'],[_fmtCOP(totalExpense),'GASTOS','#f97316','📤'],[_fmtCOP(netProfit),'NETO',netProfit>=0?C.lime:'#ef4444','📊'],[todayClasses.length,'CLASES HOY','#818cf8','📅']].forEach(function(k) {
-      html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;padding:14px;text-align:center">'
-        + '<div style="font-size:18px;margin-bottom:4px">'+k[3]+'</div>'
-        + '<div style="font-size:17px;font-weight:900;color:'+k[2]+'">'+k[0]+'</div>'
-        + '<div style="font-size:9px;color:'+C.muted+';letter-spacing:1.5px;font-weight:800;margin-top:2px">'+k[1]+'</div></div>';
+    var expectedApp = (fin.clientPlans||[]).filter(function(p){return p.active!==false;}).reduce(function(a,p){return a+(+p.monthly_fee||0);},0);
+    var expectedManual = (fin.manualClients||[]).filter(function(c){return c.active!==false;}).reduce(function(a,c){return a+(+c.monthly_fee||0);},0);
+    var expectedTotal = expectedApp + expectedManual;
+    var totalMC = (fin.manualClients||[]).filter(function(c){return c.active!==false;}).length;
+    var totalApp = (s.clients||[]).length;
+    var paidThisMonth = incFiltered.filter(function(i){return i.category==='mensualidad' && i.status==='paid';});
+    var paidClientIds = {};
+    paidThisMonth.forEach(function(i){ if(i.client_id) paidClientIds[i.client_id]=true; if(i.manual_client_id) paidClientIds[i.manual_client_id]=true; });
+    var unpaidClients = [];
+    (fin.clientPlans||[]).filter(function(p){return p.active!==false;}).forEach(function(p){ if(!paidClientIds[p.client_id]) unpaidClients.push({name:_getClientName(p.client_id),fee:p.monthly_fee,id:p.client_id,type:'app',location_id:p.location_id}); });
+    (fin.manualClients||[]).filter(function(c){return c.active!==false;}).forEach(function(c){ if(!paidClientIds[c.id]) unpaidClients.push({name:c.name,fee:c.monthly_fee,id:c.id,type:'manual',location_id:c.location_id}); });
+    var collectedTotal = paidThisMonth.reduce(function(a,i){return a+(+i.amount||0);},0);
+    var collectPct = expectedTotal > 0 ? Math.round((collectedTotal/expectedTotal)*100) : 0;
+
+    // Row 1: Expected vs Balance
+    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:10px;margin-bottom:12px">';
+    html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;padding:16px">'
+      + '<div style="font-size:11px;font-weight:800;letter-spacing:1px;color:'+C.muted+';margin-bottom:8px">💰 INGRESOS ESPERADOS</div>'
+      + '<div style="font-size:22px;font-weight:900;color:'+C.aqua+'">'+_fmtCOP(expectedTotal)+'</div>'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><div style="flex:1;height:6px;background:'+C.border+';border-radius:3px;overflow:hidden"><div style="width:'+collectPct+'%;height:100%;background:'+C.lime+';border-radius:3px"></div></div><span style="font-size:11px;font-weight:800;color:'+C.lime+'">'+collectPct+'%</span></div>'
+      + '<div style="font-size:11px;color:'+C.muted+';margin-top:4px">Cobrado: '+_fmtCOP(collectedTotal)+' de '+_fmtCOP(expectedTotal)+'</div></div>';
+    html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;padding:16px">'
+      + '<div style="font-size:11px;font-weight:800;letter-spacing:1px;color:'+C.muted+';margin-bottom:8px">📊 BALANCE DEL MES</div>'
+      + '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:12px;color:'+C.muted+'">Cobrado</span><span style="font-size:13px;font-weight:800;color:'+C.aqua+'">'+_fmtCOP(totalIncome)+'</span></div>'
+      + '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:12px;color:'+C.muted+'">Gastos</span><span style="font-size:13px;font-weight:800;color:#f97316">-'+_fmtCOP(totalExpense)+'</span></div>'
+      + '<div style="height:1px;background:'+C.border+';margin:6px 0"></div>'
+      + '<div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:900">Neto</span><span style="font-size:18px;font-weight:900;color:'+(netProfit>=0?C.lime:'#ef4444')+'">'+_fmtCOP(netProfit)+'</span></div></div>';
+    html += '</div>';
+
+    // Row 2: Quick stats
+    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(4)+';gap:8px;margin-bottom:16px">';
+    [[totalApp+totalMC,'CLIENTES',C.aqua,'👥'],[todayClasses.length,'CLASES HOY','#818cf8','📅'],[unpaidClients.length,'SIN PAGAR','#f59e0b','⚠️'],[suppFiltered.length,'VENTAS SUPL.','#8b5cf6','💊']].forEach(function(k) {
+      html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:12px;padding:10px;text-align:center"><div style="font-size:14px">'+k[3]+'</div><div style="font-size:16px;font-weight:900;color:'+k[2]+'">'+k[0]+'</div><div style="font-size:8px;color:'+C.muted+';letter-spacing:1px;font-weight:800">'+k[1]+'</div></div>';
     });
     html += '</div>';
 
     // Location breakdown
-    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:12px;margin-bottom:20px">';
+    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:12px;margin-bottom:16px">';
     (fin.locations||[]).forEach(function(loc) {
       var locInc = incFiltered.filter(function(i){return i.location_id===loc.id;}).reduce(function(a,i){return a+(+i.amount||0);},0);
       var locExp = expFiltered.filter(function(e){return e.location_id===loc.id;}).reduce(function(a,e){return a+(+e.amount||0);},0);
+      var locExpected = 0;
+      (fin.clientPlans||[]).filter(function(p){return p.active!==false&&p.location_id===loc.id;}).forEach(function(p){locExpected+=(+p.monthly_fee||0);});
+      (fin.manualClients||[]).filter(function(c){return c.active!==false&&c.location_id===loc.id;}).forEach(function(c){locExpected+=(+c.monthly_fee||0);});
       var locNet = locInc - locExp;
       var icon = loc.type==='gym'?'🏋️':'🏠';
       html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px">'
-        + '<div style="font-size:14px;font-weight:800;margin-bottom:12px">'+icon+' '+loc.name+'</div>'
-        + '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;color:'+C.muted+'">Ingresos</span><span style="font-size:13px;font-weight:800;color:'+C.aqua+'">'+_fmtCOP(locInc)+'</span></div>'
-        + '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:12px;color:'+C.muted+'">Gastos</span><span style="font-size:13px;font-weight:800;color:#f97316">'+_fmtCOP(locExp)+'</span></div>'
+        + '<div style="font-size:14px;font-weight:800;margin-bottom:10px">'+icon+' '+loc.name+'</div>'
+        + '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:'+C.muted+'">Esperado</span><span style="font-size:12px;font-weight:700;color:'+C.muted+'">'+_fmtCOP(locExpected)+'</span></div>'
+        + '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:'+C.muted+'">Cobrado</span><span style="font-size:12px;font-weight:800;color:'+C.aqua+'">'+_fmtCOP(locInc)+'</span></div>'
+        + '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:'+C.muted+'">Gastos</span><span style="font-size:12px;font-weight:800;color:#f97316">'+_fmtCOP(locExp)+'</span></div>'
         + '<div style="height:1px;background:'+C.border+';margin:4px 0"></div>'
-        + '<div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:800">Neto</span><span style="font-size:14px;font-weight:900;color:'+(locNet>=0?C.lime:'#ef4444')+'">'+_fmtCOP(locNet)+'</span></div>'
-        + '</div>';
+        + '<div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:800">Neto</span><span style="font-size:15px;font-weight:900;color:'+(locNet>=0?C.lime:'#ef4444')+'">'+_fmtCOP(locNet)+'</span></div></div>';
     });
     html += '</div>';
 
-    // Supplement profit mini card
-    if (suppFiltered.length) {
-      html += '<div style="background:#8b5cf611;border:1px solid #8b5cf644;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">'
-        + '<span style="font-size:13px;font-weight:700;color:#8b5cf6">💊 Ganancia suplementos ('+suppFiltered.length+' ventas)</span>'
-        + '<span style="font-size:16px;font-weight:900;color:#8b5cf6">'+_fmtCOP(totalSuppProfit)+'</span></div>';
-    }
-
-    // Pending payments
-    if (pendingPayments.length) {
-      html += '<div style="background:#f59e0b11;border:1px solid #f59e0b44;border-radius:14px;padding:14px;margin-bottom:16px">'
-        + '<div style="font-size:13px;font-weight:800;color:#f59e0b;margin-bottom:8px">⚠️ '+pendingPayments.length+' pago(s) pendiente(s)</div>';
-      pendingPayments.slice(0,5).forEach(function(pp) {
-        var cname = pp.client_name || _getClientName(pp.client_id) || _getManualClientName(pp.manual_client_id);
-        html += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px">'
-          + '<span style="color:'+C.white+'">'+cname+'</span>'
-          + '<span style="color:#f59e0b;font-weight:800">'+_fmtCOP(pp.amount)+'</span></div>';
+    // Unpaid clients
+    if (unpaidClients.length) {
+      html += '<div style="background:#f59e0b0a;border:1px solid #f59e0b33;border-radius:14px;padding:14px;margin-bottom:16px">'
+        + '<div style="font-size:13px;font-weight:800;color:#f59e0b;margin-bottom:10px">⚠️ Sin pagar este mes ('+unpaidClients.length+')</div>';
+      unpaidClients.forEach(function(uc) {
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f59e0b11">'
+          + '<div><span style="font-size:13px;font-weight:700;color:'+C.white+'">'+uc.name+'</span> <span style="font-size:10px;color:'+C.muted+'">'+(uc.type==='manual'?'📋':'📱')+' '+_getLocName(uc.location_id)+'</span></div>'
+          + '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;font-weight:800;color:#f59e0b">'+_fmtCOP(uc.fee)+'</span>'
+          + '<button onclick="STATE.fin.incomeForm={client_id:'+(uc.type==='app'?'\''+uc.id+'\'':'\'\'')+',manual_client_id:'+(uc.type==='manual'?'\''+uc.id+'\'':'\'\'')+',client_name:\'\',location_id:\''+(uc.location_id||'')+'\',amount:\''+uc.fee+'\',category:\'mensualidad\',description:\'Mensualidad\',date:\''+todayStr+'\',month_ref:\'\',status:\'paid\'};STATE.fin.showAddIncome=true;STATE.fin.tab=\'income\';_renderFinance()" style="'+btn('aqua')+';padding:4px 10px;font-size:10px;border-radius:8px">💵 Cobrar</button>'
+          + '</div></div>';
       });
       html += '</div>';
+    } else if (expectedTotal > 0) {
+      html += '<div style="background:'+C.lime+'0a;border:1px solid '+C.lime+'33;border-radius:14px;padding:14px;margin-bottom:16px;text-align:center"><div style="font-size:14px;font-weight:800;color:'+C.lime+'">✅ Todos pagaron este mes</div></div>';
+    }
+
+    // Supplements
+    if (suppFiltered.length) {
+      html += '<div style="background:#8b5cf611;border:1px solid #8b5cf644;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">'
+        + '<span style="font-size:13px;font-weight:700;color:#8b5cf6">💊 Suplementos ('+suppFiltered.length+')</span>'
+        + '<span style="font-size:16px;font-weight:900;color:#8b5cf6">'+_fmtCOP(totalSuppProfit)+' ganancia</span></div>';
     }
 
     // Today's classes
-    html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px;margin-bottom:16px">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
-      + '<div style="font-size:14px;font-weight:800">📅 Clases de Hoy</div>'
-      + '<button onclick="STATE.fin.tab=\'classes\';STATE.fin.showAddClass=true;_renderFinance()" style="'+btn('aqua')+';padding:6px 14px;font-size:11px;border-radius:10px">+ Agregar</button></div>';
-    if (!todayClasses.length) {
-      html += '<div style="text-align:center;padding:20px;color:'+C.muted+';font-size:13px">Sin clases programadas para hoy</div>';
-    } else {
-      todayClasses.forEach(function(cl) {
-        var statusIcon = cl.status==='completed'?'✅':cl.status==='cancelled'?'❌':'🕐';
-        html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;background:'+C.bg+';border-radius:12px;margin-bottom:6px;border:1px solid '+C.border+'">'
-          + '<div style="font-size:18px">'+statusIcon+'</div>'
-          + '<div style="flex:1;min-width:0">'
-          + '<div style="font-size:13px;font-weight:800">'+_classClientName(cl)+'</div>'
-          + '<div style="font-size:11px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5):'')+' · '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤 '+_getStaffName(cl.staff_id):'')+'</div>'
-          + _classCounterHtml(cl.client_id, cl.manual_client_id)
-          + '</div>';
-        if (cl.status==='scheduled') {
-          html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:5px 10px;font-size:10px;border-radius:8px">✓</button>'
-            + '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'cancelled\')" style="'+btn('ghost')+';padding:5px 10px;font-size:10px;border-radius:8px">✗</button>';
-        }
-        html += '</div>';
-      });
-    }
-    html += '</div>';
-
-    // Quick stats: manual clients + total clients
-    var totalMC = (fin.manualClients||[]).filter(function(c){return c.active;}).length;
-    var totalApp = (s.clients||[]).length;
-    html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(3)+';gap:10px">';
-    [[totalApp+totalMC,'CLIENTES TOTAL',C.aqua],[totalApp,'EN APP',C.lime],[totalMC,'MANUALES','#818cf8']].forEach(function(st) {
-      html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:12px;padding:12px;text-align:center">'
-        + '<div style="font-size:20px;font-weight:900;color:'+st[2]+'">'+st[0]+'</div>'
-        + '<div style="font-size:9px;color:'+C.muted+';letter-spacing:1.5px;font-weight:800;margin-top:2px">'+st[1]+'</div></div>';
-    });
+    html += '<div style="background:'+C.card+';border:1px solid '+C.border+';border-radius:16px;padding:16px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:14px;font-weight:800">📅 Clases de Hoy</div>'
+      + '<button onclick="STATE.fin.tab=\'classes\';_renderFinance()" style="'+btn('aqua')+';padding:6px 14px;font-size:11px;border-radius:10px">Ver agenda</button></div>';
+    if (!todayClasses.length) { html += '<div style="text-align:center;padding:20px;color:'+C.muted+';font-size:13px">Sin clases hoy</div>'; }
+    else { todayClasses.forEach(function(cl) {
+      var si = cl.status==='completed'?'✅':cl.status==='cancelled'?'❌':'🕐';
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px;background:'+C.bg+';border-radius:12px;margin-bottom:6px;border:1px solid '+C.border+'"><div style="font-size:18px">'+si+'</div><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800">'+_classClientName(cl)+'</div><div style="font-size:11px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5):'')+' · '+_getLocName(cl.location_id)+'</div>'+_classCounterHtml(cl.client_id,cl.manual_client_id)+'</div>';
+      if (cl.status==='scheduled') html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:5px 10px;font-size:10px;border-radius:8px">✓</button>';
+      html += '</div>';
+    }); }
     html += '</div>';
   }
 
