@@ -100,6 +100,52 @@
     .vw-btn-primary:hover{opacity:.88!important}
     /* ── INPUT FOCUS ────────────────────────────────────────── */
     input:focus,textarea:focus{outline:none}
+
+    /* ══════════════════════════════════════════════════════════ */
+    /* MOBILE RESPONSIVE                                         */
+    /* ══════════════════════════════════════════════════════════ */
+    
+    /* Smooth scrolling for tabs */
+    .fin-tabs{display:flex;gap:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none}
+    .fin-tabs::-webkit-scrollbar{display:none}
+
+    /* Touch-friendly buttons */
+    @media(max-width:640px){
+      /* Top nav compact */
+      body{-webkit-text-size-adjust:100%}
+      
+      /* Trainer main tabs: horizontal scroll, smaller padding */
+      .vw-trainer-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none}
+      .vw-trainer-tabs::-webkit-scrollbar{display:none}
+      
+      /* Finance form grids: single column on small screens */
+      .fin-form-grid{grid-template-columns:1fr !important}
+
+      /* Cards & containers: tighter padding */
+      .fin-card{padding:12px !important}
+      
+      /* Agenda hour slots: bigger tap targets */
+      .fin-agenda-slot{min-height:52px !important}
+      .fin-agenda-hour{width:48px !important;font-size:11px !important}
+      
+      /* Action buttons: bigger for touch */
+      .fin-action-btn{min-width:36px !important;min-height:36px !important;font-size:16px !important}
+      
+      /* Filter pills: wrap nicely */
+      .fin-filters{gap:6px !important}
+      .fin-filters button{padding:6px 10px !important;font-size:10px !important}
+    }
+
+    @media(max-width:380px){
+      /* Very small screens */
+      .fin-kpi-val{font-size:14px !important}
+      .fin-kpi-label{font-size:7px !important}
+    }
+
+    /* Safe area padding for iPhone notch */
+    @supports(padding:max(0px)){
+      .vw-bottom-safe{padding-bottom:max(16px,env(safe-area-inset-bottom))}
+    }
   </style>
 </head>
 <body>
@@ -268,8 +314,8 @@ function safeTap(key, fn, cooldownMs) {
 function responsiveGrid(cols, minWidth) {
   minWidth = minWidth || 320;
   var screenW = window.innerWidth || 375;
-  if (screenW < 360) return '1fr';
-  if (screenW < 480 && cols > 2) return '1fr 1fr';
+  if (screenW < 380) return cols > 2 ? '1fr 1fr' : '1fr';
+  if (screenW < 480) return cols > 2 ? '1fr 1fr' : cols === 2 ? '1fr 1fr' : '1fr';
   if (screenW < 640 && cols > 3) return 'repeat(2,1fr)';
   return 'repeat(' + cols + ',1fr)';
 }
@@ -2191,12 +2237,12 @@ function renderTrainer(app) {
     + '</div>'
     // ── Tabs ──
     + '<div style="background:' + C.card + ';border-bottom:1px solid ' + C.border + '">'
-      + '<div style="display:flex;max-width:960px;margin:0 auto">';
+      + '<div class="vw-trainer-tabs" style="display:flex;max-width:960px;margin:0 auto;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">';
 
   var TTABS = [['clients','👥 CLIENTES'],['routines','📋 RUTINAS'],['finance','💰 FINANZAS'],['invite','➕ VINCULAR'],['manage','⚙️']];
   for (var ti=0; ti<TTABS.length; ti++) {
     var tt = TTABS[ti], ttOn = s.trainerTab === tt[0];
-    html += '<button onclick="set({trainerTab:\'' + tt[0] + '\'})" style="padding:12px 20px;background:transparent;border:none;border-bottom:2px solid ' + (ttOn ? C.aqua : 'transparent') + ';color:' + (ttOn ? C.aqua : C.muted) + ';font-weight:800;font-size:11px;letter-spacing:1px;cursor:pointer">' + tt[1] + '</button>';
+    html += '<button onclick="set({trainerTab:\'' + tt[0] + '\'})" style="padding:12px 14px;background:transparent;border:none;border-bottom:2px solid ' + (ttOn ? C.aqua : 'transparent') + ';color:' + (ttOn ? C.aqua : C.muted) + ';font-weight:800;font-size:11px;letter-spacing:.5px;cursor:pointer;white-space:nowrap">' + tt[1] + '</button>';
   }
 
   html += '</div></div>'
@@ -3587,7 +3633,7 @@ function _renderFinance() {
 
   // ── Sub-tabs ──
   var FTABS = [['dashboard','📊 Resumen'],['income','💵 Ingresos'],['expenses','📤 Gastos'],['supplements','💊 Suplem.'],['classes','📅 Clases'],['plans','👤 Clientes']];
-  html += '<div style="display:flex;gap:0;overflow-x:auto;margin-bottom:16px;border-bottom:1px solid '+C.border+';scrollbar-width:none;-webkit-overflow-scrolling:touch">';
+  html += '<div class="fin-tabs" style="display:flex;gap:0;overflow-x:auto;margin-bottom:16px;border-bottom:1px solid '+C.border+';scrollbar-width:none;-webkit-overflow-scrolling:touch">';
   FTABS.forEach(function(ft) {
     var on = fin.tab === ft[0];
     html += '<button onclick="_finSetTab(\''+ft[0]+'\')" style="padding:10px 14px;background:transparent;border:none;border-bottom:2.5px solid '+(on?C.aqua:'transparent')+';color:'+(on?C.aqua:C.muted)+';font-weight:800;font-size:11px;letter-spacing:.5px;cursor:pointer;white-space:nowrap;font-family:Nunito,sans-serif">'+ft[1]+'</button>';
@@ -3595,7 +3641,7 @@ function _renderFinance() {
   html += '</div>';
 
   // ── Period & Location filters ──
-  html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">';
+  html += '<div class="fin-filters" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">';
   [['week','Semana'],['month','Mes'],['year','Año']].forEach(function(p) {
     var on = fin.periodFilter === p[0];
     html += '<button onclick="_finSetPeriod(\''+p[0]+'\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid '+(on?C.lime:C.border)+';background:'+(on?C.lime+'22':'transparent')+';color:'+(on?C.lime:C.muted)+';font-size:11px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">'+p[1]+'</button>';
@@ -3914,20 +3960,20 @@ function _renderFinance() {
     });
 
     // ── Date navigation header ──
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
-      + '<button onclick="_classesNavDay(-1)" style="'+btn('ghost')+';padding:10px 14px;font-size:16px;border-radius:10px">◀</button>'
-      + '<div style="text-align:center;flex:1">'
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">'
+      + '<button onclick="_classesNavDay(-1)" style="'+btn('ghost')+';padding:12px 16px;font-size:18px;border-radius:12px;flex-shrink:0">◀</button>'
+      + '<div style="text-align:center;flex:1;cursor:pointer" onclick="document.getElementById(\'agenda-date-pick\').showPicker?document.getElementById(\'agenda-date-pick\').showPicker():document.getElementById(\'agenda-date-pick\').focus()">'
       + '<div style="font-size:20px;font-weight:900;color:'+(isToday?C.aqua:C.white)+'">'+dayLabel+'</div>'
       + '<div style="font-size:13px;color:'+C.muted+';margin-top:2px">'+dayNum+' '+monthName+' '+viewD.getFullYear()+'</div>'
+      + '<input id="agenda-date-pick" type="date" value="'+viewDate+'" onchange="_classesSetDate(this.value)" style="position:absolute;opacity:0;pointer-events:none"/>'
       + '</div>'
-      + '<button onclick="_classesNavDay(1)" style="'+btn('ghost')+';padding:10px 14px;font-size:16px;border-radius:10px">▶</button>'
+      + '<button onclick="_classesNavDay(1)" style="'+btn('ghost')+';padding:12px 16px;font-size:18px;border-radius:12px;flex-shrink:0">▶</button>'
       + '</div>';
 
     // ── Quick actions ──
-    html += '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">';
-    if (!isToday) html += '<button onclick="_classesGoToday()" style="'+btn('ghost')+';padding:6px 14px;font-size:11px;border-radius:10px">📍 Ir a Hoy</button>';
-    html += '<input type="date" value="'+viewDate+'" onchange="_classesSetDate(this.value)" style="background:'+C.dark+';border:1px solid '+C.border+';color:'+C.white+';padding:6px 12px;border-radius:10px;font-size:11px;font-family:Nunito,sans-serif"/>'
-      + '<button onclick="_exportTodayClasses()" style="'+btn('ghost')+';padding:6px 14px;font-size:11px;border-radius:10px">📅 Exportar día</button>'
+    html += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">';
+    if (!isToday) html += '<button onclick="_classesGoToday()" style="'+btn('ghost')+';padding:8px 14px;font-size:11px;border-radius:10px">📍 Hoy</button>';
+    html += '<button onclick="_exportTodayClasses()" style="'+btn('ghost')+';padding:8px 14px;font-size:11px;border-radius:10px">📅 Exportar</button>'
       + '</div>';
 
     // ── Summary bar ──
@@ -3981,13 +4027,13 @@ function _renderFinance() {
       var isPast = isToday && hour < now.getHours();
       var isCurrent = isToday && hour === now.getHours();
 
-      html += '<div style="display:flex;border-bottom:1px solid '+C.border+'22;min-height:'+(hasClass?'auto':'44px')+';'+(isCurrent?'background:'+C.aqua+'08;':'')+(isPast?'opacity:.5;':'')+'">'
+      html += '<div style="display:flex;border-bottom:1px solid '+C.border+'22;min-height:'+(hasClass?'auto':'48px')+';'+(isCurrent?'background:'+C.aqua+'08;':'')+(isPast?'opacity:.5;':'')+'">'
         // Hour label
-        + '<div style="width:56px;padding:10px 4px;text-align:center;border-right:1px solid '+C.border+'22;flex-shrink:0">'
+        + '<div style="width:52px;padding:12px 4px;text-align:center;border-right:1px solid '+C.border+'22;flex-shrink:0">'
         + '<div style="font-size:12px;font-weight:800;color:'+(isCurrent?C.aqua:hasClass?C.white:C.muted)+'">'+hourStr+'</div>'
         + '</div>'
         // Content
-        + '<div style="flex:1;padding:6px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center">';
+        + '<div style="flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:center">';
 
       if (hasClass) {
         classes.forEach(function(cl) {
@@ -3995,22 +4041,24 @@ function _renderFinance() {
           var statusIcon = cl.status==='completed'?'✅':cl.status==='cancelled'?'❌':cl.status==='no_show'?'⚠️':'🕐';
           var locIcon = (function(){ var l=(STATE.fin.locations||[]).find(function(x){return x.id===cl.location_id;}); return l&&l.type==='gym'?'🏋️':'🏠'; })();
 
-          html += '<div style="display:flex;align-items:center;gap:8px;background:'+statusCol+'11;border:1px solid '+statusCol+'33;border-radius:10px;padding:8px 10px">'
+          html += '<div style="display:flex;align-items:center;gap:6px;background:'+statusCol+'11;border:1px solid '+statusCol+'33;border-radius:10px;padding:10px">'
             + '<div style="flex:1;min-width:0">'
             + '<div style="font-size:13px;font-weight:800;color:'+C.white+'">'+statusIcon+' '+_classClientName(cl)+'</div>'
             + '<div style="font-size:10px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5):'')+(cl.time_end?' - '+cl.time_end.slice(0,5):'')+' '+locIcon+' '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤'+_getStaffName(cl.staff_id):'')+'</div>'
             + _classCounterHtml(cl.client_id, cl.manual_client_id)
-            + '</div>';
+            + '</div>'
+            + '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">';
           if (cl.status==='scheduled') {
-            html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:4px 8px;font-size:10px;border-radius:6px">✓</button>';
+            html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:6px 10px;font-size:11px;border-radius:8px">✓</button>';
           }
-          html += '<button onclick="_addToCalendar(\''+cl.id+'\')" style="background:transparent;border:none;color:'+C.aqua+'88;font-size:12px;cursor:pointer;padding:2px">📅</button>'
-            + '<button onclick="_finDeleteClass(\''+cl.id+'\')" style="background:transparent;border:none;color:#ef444466;font-size:12px;cursor:pointer;padding:2px">🗑</button>'
-            + '</div>';
+          html += '<div style="display:flex;gap:2px">'
+            + '<button onclick="_addToCalendar(\''+cl.id+'\')" style="background:transparent;border:none;color:'+C.aqua+'88;font-size:14px;cursor:pointer;padding:4px">📅</button>'
+            + '<button onclick="_finDeleteClass(\''+cl.id+'\')" style="background:transparent;border:none;color:#ef444466;font-size:14px;cursor:pointer;padding:4px">🗑</button>'
+            + '</div></div></div>';
         });
       } else {
-        // Empty slot — clickable to quick-add
-        html += '<button onclick="_quickAddClass('+hour+')" style="background:transparent;border:none;color:'+C.border+';font-size:11px;cursor:pointer;padding:2px;text-align:left;width:100%;font-family:Nunito,sans-serif" title="Agregar clase a las '+hourStr+'">+ Agregar clase</button>';
+        // Empty slot — clickable to quick-add, bigger touch target
+        html += '<button onclick="_quickAddClass('+hour+')" style="background:transparent;border:none;color:'+C.muted+'66;font-size:12px;cursor:pointer;padding:6px 0;text-align:left;width:100%;font-family:Nunito,sans-serif;-webkit-tap-highlight-color:transparent" title="Agregar clase a las '+hourStr+'">+ Agregar clase</button>';
       }
 
       html += '</div></div>';
