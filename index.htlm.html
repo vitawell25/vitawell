@@ -171,7 +171,7 @@ var STATE = {
     expenseForm: {location_id:'',amount:'',category:'arriendo',description:'',date:'',is_recurring:false},
     classForm: {client_id:'',manual_client_id:'',client_name:'',location_id:'',staff_id:'',date:'',time_start:'',time_end:'',notes:''},
     planForm: {client_id:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,notes:''},
-    manualClientForm: {name:'',phone:'',email:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,notes:''},
+    manualClientForm: {name:'',phone:'',email:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,classes_per_month:12,notes:''},
     supplementForm: {product_name:'',category:'proteina',sale_price:'',cost_price:'',client_name:'',date:'',notes:''}
   }
 };
@@ -2742,8 +2742,14 @@ async function _initDefaultLocations(tid) {
 }
 
 function _fmtCOP(n) {
-  n = +n || 0;
-  return '$' + Math.round(n).toLocaleString('es-CO');
+  n = Math.round(+n || 0);
+  var str = Math.abs(n).toString();
+  var formatted = '';
+  for (var i = str.length - 1, c = 0; i >= 0; i--, c++) {
+    if (c > 0 && c % 3 === 0) formatted = '.' + formatted;
+    formatted = str[i] + formatted;
+  }
+  return (n < 0 ? '-' : '') + '$' + formatted;
 }
 
 function _finPeriodRange() {
@@ -2960,6 +2966,7 @@ async function _finSavePlan() {
     location_id: f.location_id || null,
     monthly_fee: +f.monthly_fee,
     sessions_per_week: +f.sessions_per_week || 3,
+    classes_per_month: +f.classes_per_month || 12,
     payment_day: +f.payment_day || 1,
     notes: f.notes || null
   };
@@ -2968,7 +2975,7 @@ async function _finSavePlan() {
   if (r.error) { toast(friendlyError(r.error.message),'err'); return; }
   STATE.fin.clientPlans = [r.data[0]].concat(STATE.fin.clientPlans);
   STATE.fin.showAddPlan = false;
-  STATE.fin.planForm = {client_id:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,notes:''};
+  STATE.fin.planForm = {client_id:'',location_id:'',monthly_fee:'',sessions_per_week:3,classes_per_month:12,payment_day:1,notes:''};
   toast('Plan guardado ✓');
   _renderFinance();
 }
@@ -3007,6 +3014,7 @@ async function _finSaveManualClient() {
     monthly_fee: +f.monthly_fee || 0,
     sessions_per_week: +f.sessions_per_week || 3,
     payment_day: +f.payment_day || 1,
+    classes_per_month: +f.classes_per_month || 12,
     notes: f.notes || null
   };
   var r = await SB.from('manual_clients').insert(payload).select();
@@ -3014,7 +3022,7 @@ async function _finSaveManualClient() {
   if (r.error) { toast(friendlyError(r.error.message),'err'); return; }
   STATE.fin.manualClients = STATE.fin.manualClients.concat(r.data);
   STATE.fin.showAddManualClient = false;
-  STATE.fin.manualClientForm = {name:'',phone:'',email:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,notes:''};
+  STATE.fin.manualClientForm = {name:'',phone:'',email:'',location_id:'',monthly_fee:'',sessions_per_week:3,payment_day:1,classes_per_month:12,notes:''};
   toast('Cliente agregado ✓');
   _renderFinance();
 }
@@ -3113,6 +3121,51 @@ var SUPP_CATS = [
   {val:'vitamina',icon:'💊',label:'Vitaminas'},
   {val:'otro',icon:'📦',label:'Otro'}
 ];
+
+// ── CLASS COUNTER: count completed classes this month per client ──
+function _getMonthlyClassCount(clientId, manualClientId) {
+  var now = new Date();
+  var monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+  var monthEnd = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+  return (STATE.fin.classes||[]).filter(function(c) {
+    if (c.status !== 'completed') return false;
+    if (c.date < monthStart || c.date > monthEnd) return false;
+    if (clientId && c.client_id === clientId) return true;
+    if (manualClientId && c.manual_client_id === manualClientId) return true;
+    return false;
+  }).length;
+}
+
+function _getClientClassInfo(clientId, manualClientId) {
+  var taken = _getMonthlyClassCount(clientId, manualClientId);
+  var total = 0;
+  // Check manual clients
+  if (manualClientId) {
+    var mc = (STATE.fin.manualClients||[]).find(function(c){return c.id===manualClientId;});
+    if (mc) total = +mc.classes_per_month || 12;
+  }
+  // Check app client plans
+  if (clientId) {
+    var plan = (STATE.fin.clientPlans||[]).find(function(p){return p.client_id===clientId && p.active;});
+    if (plan) total = +plan.classes_per_month || 12;
+    // Also check manual clients with same id (shouldn't happen but safety)
+    var mc2 = (STATE.fin.manualClients||[]).find(function(c){return c.id===clientId;});
+    if (mc2) total = +mc2.classes_per_month || 12;
+  }
+  var remaining = Math.max(0, total - taken);
+  return {taken:taken, total:total, remaining:remaining, finished:total>0 && remaining===0};
+}
+
+function _classCounterHtml(clientId, manualClientId) {
+  var info = _getClientClassInfo(clientId, manualClientId);
+  if (!info.total) return '';
+  var pct = info.total > 0 ? Math.min(100, Math.round((info.taken/info.total)*100)) : 0;
+  var barColor = info.finished ? '#ef4444' : info.remaining <= 2 ? '#f59e0b' : C.aqua;
+  return '<div style="margin-top:4px;display:flex;align-items:center;gap:8px">'
+    + '<div style="flex:1;height:4px;background:'+C.border+';border-radius:2px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+barColor+';border-radius:2px"></div></div>'
+    + '<span style="font-size:10px;font-weight:800;color:'+barColor+';white-space:nowrap">'+info.taken+'/'+info.total+(info.finished?' ⚠️ PLAN FINALIZADO':'')+'</span>'
+    + '</div>';
+}
 
 // ══════════════════════════════════════════════════════════════
 // FINANCE MODULE — Renderer
@@ -3230,7 +3283,9 @@ function _renderFinance() {
           + '<div style="font-size:18px">'+statusIcon+'</div>'
           + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:13px;font-weight:800">'+_classClientName(cl)+'</div>'
-          + '<div style="font-size:11px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5):'')+' · '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤 '+_getStaffName(cl.staff_id):'')+'</div></div>';
+          + '<div style="font-size:11px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5):'')+' · '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤 '+_getStaffName(cl.staff_id):'')+'</div>'
+          + _classCounterHtml(cl.client_id, cl.manual_client_id)
+          + '</div>';
         if (cl.status==='scheduled') {
           html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:5px 10px;font-size:10px;border-radius:8px">✓</button>'
             + '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'cancelled\')" style="'+btn('ghost')+';padding:5px 10px;font-size:10px;border-radius:8px">✗</button>';
@@ -3478,6 +3533,7 @@ function _renderFinance() {
             + '<div style="flex:1;min-width:0">'
             + '<div style="font-size:13px;font-weight:800">'+_classClientName(cl)+'</div>'
             + '<div style="font-size:11px;color:'+C.muted+'">'+(cl.time_start?cl.time_start.slice(0,5)+(cl.time_end?' - '+cl.time_end.slice(0,5):''):'')+' · '+_getLocName(cl.location_id)+(cl.staff_id?' · 👤 '+_getStaffName(cl.staff_id):'')+'</div>'
+            + _classCounterHtml(cl.client_id, cl.manual_client_id)
             + '<div style="font-size:10px;color:'+statusCol+';font-weight:700;margin-top:2px">'+statusLabel+'</div></div>';
           if (cl.status==='scheduled') {
             html += '<button onclick="_finUpdateClassStatus(\''+cl.id+'\',\'completed\')" style="'+btn('aqua')+';padding:6px 10px;font-size:10px;border-radius:8px">✓</button>'
@@ -3510,6 +3566,7 @@ function _renderFinance() {
       html += '</select></div>'
         + '<div><div style="'+lbl()+'">MENSUALIDAD (COP)</div><input type="number" value="'+(fin.manualClientForm.monthly_fee||'')+'" oninput="STATE.fin.manualClientForm.monthly_fee=this.value" placeholder="150000" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">SESIONES / SEMANA</div><input type="number" min="1" max="7" value="'+(fin.manualClientForm.sessions_per_week||3)+'" oninput="STATE.fin.manualClientForm.sessions_per_week=this.value" style="'+inp()+'"/></div>'
+        + '<div><div style="'+lbl()+'">CLASES AL MES</div><input type="number" min="1" max="31" value="'+(fin.manualClientForm.classes_per_month||12)+'" oninput="STATE.fin.manualClientForm.classes_per_month=this.value" placeholder="12" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">DÍA DE PAGO</div><input type="number" min="1" max="31" value="'+(fin.manualClientForm.payment_day||1)+'" oninput="STATE.fin.manualClientForm.payment_day=this.value" style="'+inp()+'"/></div>'
         + '</div>'
         + '<div style="margin-top:12px"><div style="'+lbl()+'">NOTAS</div><input type="text" value="'+(fin.manualClientForm.notes||'')+'" oninput="STATE.fin.manualClientForm.notes=this.value" placeholder="Ej: Viene lunes, miércoles y viernes" style="'+inp()+'"/></div>'
@@ -3540,6 +3597,7 @@ function _renderFinance() {
           + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:14px;font-weight:800">'+mc.name+(isActive?'':' <span style="color:#ef4444;font-size:10px">INACTIVO</span>')+'</div>'
           + '<div style="font-size:11px;color:'+C.muted+'">'+(mc.phone||'')+(mc.location_id?' · '+_getLocName(mc.location_id):'')+' · '+mc.sessions_per_week+'x/sem · Día '+mc.payment_day+'</div>'
+          + _classCounterHtml(null, mc.id)
           + (mc.notes?'<div style="font-size:11px;color:'+C.muted+';margin-top:2px">'+mc.notes+'</div>':'')
           + '</div>'
           + '<div style="font-size:15px;font-weight:900;color:'+C.aqua+';flex-shrink:0">'+_fmtCOP(mc.monthly_fee)+'</div>'
@@ -3567,6 +3625,7 @@ function _renderFinance() {
       html += '</select></div>'
         + '<div><div style="'+lbl()+'">MENSUALIDAD (COP)</div><input type="number" value="'+(fin.planForm.monthly_fee||'')+'" oninput="STATE.fin.planForm.monthly_fee=this.value" placeholder="150000" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">SESIONES / SEMANA</div><input type="number" min="1" max="7" value="'+(fin.planForm.sessions_per_week||3)+'" oninput="STATE.fin.planForm.sessions_per_week=this.value" style="'+inp()+'"/></div>'
+        + '<div><div style="'+lbl()+'">CLASES AL MES</div><input type="number" min="1" max="31" value="'+(fin.planForm.classes_per_month||12)+'" oninput="STATE.fin.planForm.classes_per_month=this.value" placeholder="12" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">DÍA DE PAGO</div><input type="number" min="1" max="31" value="'+(fin.planForm.payment_day||1)+'" oninput="STATE.fin.planForm.payment_day=this.value" style="'+inp()+'"/></div>'
         + '<div><div style="'+lbl()+'">NOTAS</div><input type="text" value="'+(fin.planForm.notes||'')+'" oninput="STATE.fin.planForm.notes=this.value" style="'+inp()+'"/></div>'
         + '</div>'
@@ -3580,7 +3639,9 @@ function _renderFinance() {
         html += '<div style="display:flex;align-items:center;gap:12px;padding:14px;background:'+C.card+';border:1px solid '+C.border+';border-radius:14px;margin-bottom:8px">'
           + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:14px;font-weight:800">'+_getClientName(plan.client_id)+'</div>'
-          + '<div style="font-size:11px;color:'+C.muted+'">'+_getLocName(plan.location_id)+' · '+plan.sessions_per_week+'x/sem · Día '+plan.payment_day+'</div></div>'
+          + '<div style="font-size:11px;color:'+C.muted+'">'+_getLocName(plan.location_id)+' · '+plan.sessions_per_week+'x/sem · Día '+plan.payment_day+'</div>'
+          + _classCounterHtml(plan.client_id, null)
+          + '</div>'
           + '<div style="font-size:16px;font-weight:900;color:'+C.aqua+';flex-shrink:0">'+_fmtCOP(plan.monthly_fee)+'</div>'
           + '<button onclick="_finDeletePlan(\''+plan.id+'\')" style="background:transparent;border:none;color:#ef444488;font-size:14px;cursor:pointer;padding:4px">🗑</button></div>';
       });
