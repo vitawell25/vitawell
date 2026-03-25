@@ -1489,6 +1489,12 @@ async function loadProfile(user) {
     // Load unassigned client pool in background
     SB.from('profiles').select('id,full_name,email,role').eq('role','client').is('trainer_id',null).limit(50)
       .then(function(pr){ STATE.clientPool = (pr.data||[]).filter(function(p){ return !STATE.clients.find(function(m){return m.id===p.id;}); }); });
+    // Load routines in background so they're available in client detail
+    SB.from('routines').select('*').eq('trainer_id', user.id).order('created_at', {ascending:false})
+      .then(function(rr){
+        if (!STATE.rb) STATE.rb = {name:'',clientId:'',catFilter:'all',search:'',exercises:[],savedRoutines:[]};
+        STATE.rb.savedRoutines = rr.data || [];
+      });
     // Load finance data in background
     _loadFinanceData(user.id);
     render();
