@@ -567,13 +567,18 @@ function _renderHeatmap(sessions) {
   var dayMap = {};
   sessions.forEach(function(ss) { dayMap[ss.date] = ss; });
 
-  // Streak calculation
+  // Weekly streak calculation
   var now = new Date();
   var streak = 0;
-  for (var i = 0; i < 365; i++) {
-    var d = _localDateStr(new Date(now.getTime() - i * 86400000));
-    if (dayMap[d]) streak++;
-    else if (i > 0) break;
+  for (var w = 0; w < 52; w++) {
+    var weekHasSession = false;
+    for (var d = 0; d < 7; d++) {
+      var dayOffset = w * 7 + d + (now.getDay()); // start from current week
+      var checkDate = new Date(now.getTime() - dayOffset * 86400000);
+      if (dayMap[_localDateStr(checkDate)]) { weekHasSession = true; break; }
+    }
+    if (weekHasSession) streak++;
+    else if (w > 0) break;
   }
 
   // Calendar month
@@ -594,7 +599,7 @@ function _renderHeatmap(sessions) {
     + '<div style="display:flex;align-items:center;gap:8px">'
       + '<span style="font-size:22px">🔥</span>'
       + '<span style="font-size:22px;font-weight:900;color:' + C.lime + '">' + streak + '</span>'
-      + '<span style="font-size:10px;color:' + C.muted + ';letter-spacing:1.5px;font-weight:700"> DÍAS</span>'
+      + '<span style="font-size:10px;color:' + C.muted + ';letter-spacing:1.5px;font-weight:700"> SEMANAS</span>'
     + '</div>'
     + '<div style="display:flex;align-items:center;gap:8px">'
       + '<button onclick="var d=STATE.heatmapMonth||new Date();STATE.heatmapMonth=new Date(d.getFullYear(),d.getMonth()-1,1);render()" '
@@ -2680,25 +2685,67 @@ function renderTrainer(app) {
 
     // ══ SUB-TAB: RUTINA ══════════════════════════════════════
     if (cTab === 'routine') {
-      // Shows saved routines for this client + button to create new
+      // Shows saved routines for this client + session history
       var clientRoutines = (s.rb && s.rb.savedRoutines || []).filter(function(r){ return r.client_id === cl.id; });
+      
+      // Button to create new
       html += '<div>'
         + '<button onclick="set({trainerTab:\'routines\'});STATE.rb=STATE.rb||{};STATE.rb.clientId=\'' + cl.id + '\';set({selectedClient:null})" '
-          + 'style="' + btn('aqua') + ';width:100%;padding:14px;border-radius:12px;font-size:14px;margin-bottom:16px">+ Crear nueva rutina para ' + cl.full_name.split(' ')[0] + '</button>';
+          + 'style="' + btn('aqua') + ';width:100%;padding:14px;border-radius:12px;font-size:14px;margin-bottom:16px">+ Nueva rutina para ' + cl.full_name.split(' ')[0] + '</button>';
 
+      // Assigned routines
+      html += '<div style="font-size:12px;font-weight:800;letter-spacing:1.5px;color:' + C.muted + ';margin-bottom:10px">📋 RUTINAS ASIGNADAS</div>';
       if (!clientRoutines.length) {
-        html += '<div style="text-align:center;padding:30px;color:' + C.muted + ';font-size:13px">Sin rutinas asignadas</div>';
+        html += '<div style="text-align:center;padding:20px;color:' + C.muted + ';font-size:13px;background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:12px;margin-bottom:16px">Sin rutinas asignadas</div>';
       } else {
         clientRoutines.forEach(function(rt){
-          var exCount = 0;
-          try { exCount = JSON.parse(rt.exercises).length; } catch(e) {}
-          html += '<div style="background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:12px;padding:14px;margin-bottom:8px;display:flex;align-items:center;gap:12px">'
-            + '<div style="flex:1">'
-              + '<div style="font-size:13px;font-weight:800">' + rt.name + '</div>'
-              + '<div style="font-size:11px;color:' + C.muted + '">' + exCount + ' ejercicios · ' + (rt.created_at||'').slice(0,10) + '</div>'
-            + '</div>'
-            + '<button onclick="rbLoad(\'' + rt.id + '\');set({selectedClient:null,trainerTab:\'routines\'})" style="' + btn('ghost') + ';padding:7px 12px;font-size:11px">Editar</button>'
+          var exercises = [];
+          try { exercises = JSON.parse(rt.exercises); } catch(e) {}
+          html += '<div style="background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:12px;padding:14px;margin-bottom:8px">'
+            + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+            + '<div><div style="font-size:14px;font-weight:800">' + rt.name + '</div>'
+            + '<div style="font-size:11px;color:' + C.muted + '">' + exercises.length + ' ejercicios · ' + (rt.created_at||'').slice(0,10) + '</div></div>'
+            + '<button onclick="rbLoad(\'' + rt.id + '\');set({selectedClient:null,trainerTab:\'routines\'})" style="' + btn('ghost') + ';padding:7px 12px;font-size:11px">✏️ Editar</button>'
             + '</div>';
+          // Show exercises in routine
+          if (exercises.length) {
+            exercises.forEach(function(ex) {
+              html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid ' + C.border + '22">'
+                + '<span style="font-size:14px">' + (ex.icon||'💪') + '</span>'
+                + '<span style="font-size:12px;font-weight:700;flex:1">' + ex.name + '</span>'
+                + '<span style="font-size:11px;color:' + C.aqua + ';font-weight:800">' + (ex.sets||3) + '×' + (ex.reps||10) + '</span>'
+                + '</div>';
+            });
+          }
+          html += '</div>';
+        });
+      }
+
+      // Session history with details
+      html += '<div style="font-size:12px;font-weight:800;letter-spacing:1.5px;color:' + C.muted + ';margin:20px 0 10px">📊 HISTORIAL DE SESIONES</div>';
+      if (!sess.length) {
+        html += '<div style="text-align:center;padding:20px;color:' + C.muted + ';font-size:13px;background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:12px">Sin sesiones registradas</div>';
+      } else {
+        sess.slice(0,10).forEach(function(session) {
+          var groups = groupSets(session.session_sets || []);
+          var totalVol = Math.round((session.session_sets||[]).reduce(function(a,x){ return a+(+(x.weight)||0)*(+(x.reps)||0); },0));
+          html += '<div style="background:' + C.card + ';border:1px solid ' + C.border + ';border-radius:12px;padding:14px;margin-bottom:8px">'
+            + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+            + '<div style="font-size:13px;font-weight:800;color:' + C.aqua + '">' + session.date + '</div>'
+            + '<div style="font-size:11px;color:' + C.muted + '">' + groups.length + ' ejercicios · ' + _fmtCOP(totalVol).replace('$','') + 'kg vol</div>'
+            + '</div>';
+          groups.forEach(function(g) {
+            var bestWeight = Math.max.apply(null, g.sets.map(function(s){return +(s.weight)||0;}));
+            var totalReps = g.sets.reduce(function(a,s){return a+(+(s.reps)||0);},0);
+            html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'
+              + '<span style="font-size:13px">' + (g.icon||'💪') + '</span>'
+              + '<span style="font-size:12px;font-weight:700;flex:1;color:' + C.white + '">' + g.name + '</span>'
+              + '<span style="font-size:11px;color:' + C.muted + '">' + g.sets.length + 'x</span>'
+              + '<span style="font-size:11px;font-weight:800;color:' + C.aqua + '">' + bestWeight + 'kg</span>'
+              + '<span style="font-size:11px;color:' + C.muted + '">' + totalReps + 'r</span>'
+              + '</div>';
+          });
+          html += '</div>';
         });
       }
       html += '</div>';
@@ -4603,7 +4650,8 @@ function renderClient(app) {
       +'<input type="date" value="'+s.date+'" max="'+_localDateStr()+'" oninput="set({date:this.value})" style="background:'+C.card+';border:1.5px solid '+C.border+';color:'+C.white+';padding:10px 14px;border-radius:50px;font-size:13px;font-weight:600;flex:1"/>'
       +'<button onclick="set({date:_localDateStr()})" style="'+btn('ghost')+';padding:10px 14px;font-size:11px">Hoy</button>'
       +'<button onclick="openExModal()" style="'+btn('aqua')+'">+ Ejercicio</button>'
-      +'</div>';
+      +'</div>'
+      +(s.session.length?'<div id="autosave-indicator" style="text-align:center;font-size:10px;color:'+C.muted+';opacity:0;transition:opacity .3s;margin-bottom:8px">💾 Autoguardado</div>':'');
     if (!s.session.length) {
       html += '<div style="text-align:center;padding:60px 20px">'
         +'<div style="width:80px;height:80px;border-radius:24px;background:linear-gradient(135deg,'+C.card+','+C.dark+');border:1px solid '+C.border+';display:flex;align-items:center;justify-content:center;font-size:36px;margin:0 auto 16px">💪</div>'
@@ -6132,6 +6180,33 @@ window.addEventListener('beforeunload', function(e) {
     _draftSessionToLocalStorage();
   }
 });
+
+// ── AUTO-SAVE: save draft every 30 seconds while session is active ──
+var _autoSaveInterval = null;
+function _startAutoSave() {
+  if (_autoSaveInterval) return;
+  _autoSaveInterval = setInterval(function() {
+    if (STATE.session && STATE.session.length > 0 && !STATE.saving) {
+      _draftSessionToLocalStorage();
+      // Show subtle indicator
+      var el = document.getElementById('autosave-indicator');
+      if (el) { el.style.opacity = '1'; setTimeout(function(){ if(el) el.style.opacity='0'; }, 1500); }
+    }
+  }, 30000);
+}
+function _stopAutoSave() {
+  if (_autoSaveInterval) { clearInterval(_autoSaveInterval); _autoSaveInterval = null; }
+}
+// Start auto-save when session has exercises
+var _origSet = set;
+// Watch for session changes to start/stop auto-save
+setInterval(function() {
+  if (STATE.session && STATE.session.length > 0 && STATE.view === 'client') {
+    _startAutoSave();
+  } else {
+    _stopAutoSave();
+  }
+}, 5000);
 
 render();
 
