@@ -2256,7 +2256,7 @@ function renderTrainer(app) {
     + '<div style="background:' + C.card + ';border-bottom:1px solid ' + C.border + '">'
       + '<div class="vw-trainer-tabs" style="display:flex;max-width:960px;margin:0 auto;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">';
 
-  var TTABS = [['clients','👥 CLIENTES'],['routines','📋 RUTINAS'],['finance','💰 FINANZAS'],['invite','➕ VINCULAR'],['manage','⚙️']];
+  var TTABS = [['clients','👥 Clientes'],['routines','📋 Rutinas'],['finance','💰 Finanzas']];
   for (var ti=0; ti<TTABS.length; ti++) {
     var tt = TTABS[ti], ttOn = s.trainerTab === tt[0];
     html += '<button onclick="set({trainerTab:\'' + tt[0] + '\'})" style="padding:12px 14px;background:transparent;border:none;border-bottom:2px solid ' + (ttOn ? C.aqua : 'transparent') + ';color:' + (ttOn ? C.aqua : C.muted) + ';font-weight:800;font-size:11px;letter-spacing:.5px;cursor:pointer;white-space:nowrap">' + tt[1] + '</button>';
@@ -2270,21 +2270,24 @@ function renderTrainer(app) {
   // ══════════════════════════════════════════════════════════════
   if (s.trainerTab === 'clients') {
 
-    // ── Search & filter bar ──────────────────────────────────────
+    // ── Search & action bar ──────────────────────────────────────
     var clientSearch = s.clientSearch || '';
-    var clientFilter = s.clientFilter || 'all'; // 'all' | 'active' | 'inactive' | 'mine'
+    var clientFilter = s.clientFilter || 'all';
 
-    html += '<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">'
-      // Search
-      + '<div style="flex:1;min-width:200px;position:relative">'
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">'
+      + '<div style="flex:1;min-width:0">'
         + '<input id="client-search" type="text" value="' + clientSearch + '" '
           + 'oninput="STATE.clientSearch=this.value;_renderClientList()" '
-          + 'placeholder="🔍 Buscar cliente por nombre o email..." '
+          + 'placeholder="🔍 Buscar cliente..." '
           + 'style="width:100%;background:' + C.card + ';border:1.5px solid ' + C.border + ';color:#e8f4f8;padding:10px 14px;border-radius:12px;font-size:13px;font-family:Nunito,sans-serif;outline:none;box-sizing:border-box" '
           + 'onfocus="this.style.borderColor=\'' + C.aqua + '\'" onblur="this.style.borderColor=\'' + C.border + '\'"/>'
       + '</div>'
-      // Filter pills
-      + '<div style="display:flex;gap:6px">';
+      + '<button onclick="set({trainerTab:\'invite\'})" style="' + btn('aqua') + ';padding:10px 14px;font-size:12px;border-radius:10px;white-space:nowrap">+ Vincular</button>'
+      + '<button onclick="set({trainerTab:\'manage\'})" style="' + btn('ghost') + ';padding:10px 12px;font-size:14px;border-radius:10px" title="Gestionar">⚙️</button>'
+      + '</div>';
+
+    // Filter pills
+    html += '<div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;scrollbar-width:none">';
 
     [['all','Todos'],['mine','Mis clientes'],['active','Activos 48h'],['inactive','Sin entrenar']].forEach(function(f) {
       var on = clientFilter === f[0];
@@ -3855,28 +3858,36 @@ function _renderFinance() {
   var html = '';
 
   // ── Sub-tabs ──
-  var FTABS = [['dashboard','📊 Resumen'],['income','💵 Ingresos'],['expenses','📤 Gastos'],['supplements','💊 Suplem.'],['classes','📅 Clases'],['plans','👤 Clientes']];
-  html += '<div class="fin-tabs" style="display:flex;gap:0;overflow-x:auto;margin-bottom:16px;border-bottom:1px solid '+C.border+';scrollbar-width:none;-webkit-overflow-scrolling:touch">';
+  var FTABS = [['dashboard','📊 Resumen'],['classes','📅 Agenda'],['plans','👤 Clientes']];
+  html += '<div class="fin-tabs" style="display:flex;gap:0;overflow-x:auto;margin-bottom:12px;border-bottom:1px solid '+C.border+';scrollbar-width:none;-webkit-overflow-scrolling:touch">';
   FTABS.forEach(function(ft) {
     var on = fin.tab === ft[0];
-    html += '<button onclick="_finSetTab(\''+ft[0]+'\')" style="padding:10px 14px;background:transparent;border:none;border-bottom:2.5px solid '+(on?C.aqua:'transparent')+';color:'+(on?C.aqua:C.muted)+';font-weight:800;font-size:11px;letter-spacing:.5px;cursor:pointer;white-space:nowrap;font-family:Nunito,sans-serif">'+ft[1]+'</button>';
+    html += '<button onclick="_finSetTab(\''+ft[0]+'\')" style="padding:10px 16px;background:transparent;border:none;border-bottom:2.5px solid '+(on?C.aqua:'transparent')+';color:'+(on?C.aqua:C.muted)+';font-weight:800;font-size:12px;letter-spacing:.5px;cursor:pointer;white-space:nowrap;font-family:Nunito,sans-serif;flex:1;text-align:center">'+ft[1]+'</button>';
+  });
+  // Extra tabs as secondary links
+  var extraTabs = [['income','💵'],['expenses','📤'],['supplements','💊']];
+  extraTabs.forEach(function(ft) {
+    var on = fin.tab === ft[0];
+    html += '<button onclick="_finSetTab(\''+ft[0]+'\')" style="padding:10px 12px;background:transparent;border:none;border-bottom:2.5px solid '+(on?C.aqua:'transparent')+';color:'+(on?C.muted+'88':C.muted)+';font-weight:800;font-size:14px;cursor:pointer;white-space:nowrap" title="'+(ft[0]==='income'?'Ingresos':ft[0]==='expenses'?'Gastos':'Suplementos')+'">'+ft[1]+'</button>';
   });
   html += '</div>';
 
-  // ── Period & Location filters ──
-  html += '<div class="fin-filters" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">';
+  // ── Compact filters ──
+  html += '<div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">';
+  // Period select
+  html += '<select onchange="_finSetPeriod(this.value)" style="background:'+C.card+';border:1px solid '+C.border+';color:'+C.white+';padding:8px 12px;border-radius:10px;font-size:12px;font-weight:700;font-family:Nunito,sans-serif;cursor:pointer">';
   [['week','Semana'],['month','Mes'],['year','Año']].forEach(function(p) {
-    var on = fin.periodFilter === p[0];
-    html += '<button onclick="_finSetPeriod(\''+p[0]+'\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid '+(on?C.lime:C.border)+';background:'+(on?C.lime+'22':'transparent')+';color:'+(on?C.lime:C.muted)+';font-size:11px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">'+p[1]+'</button>';
+    html += '<option value="'+p[0]+'"'+(fin.periodFilter===p[0]?' selected':'')+'>'+p[1]+'</option>';
   });
-  html += '<span style="width:1px;height:20px;background:'+C.border+';margin:0 4px"></span>';
-  html += '<button onclick="_finSetLoc(\'all\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid '+(fin.locationFilter==='all'?C.aqua:C.border)+';background:'+(fin.locationFilter==='all'?C.aqua+'22':'transparent')+';color:'+(fin.locationFilter==='all'?C.aqua:C.muted)+';font-size:11px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">Todos</button>';
+  html += '</select>';
+  // Location select
+  html += '<select onchange="_finSetLoc(this.value)" style="background:'+C.card+';border:1px solid '+C.border+';color:'+C.white+';padding:8px 12px;border-radius:10px;font-size:12px;font-weight:700;font-family:Nunito,sans-serif;cursor:pointer">';
+  html += '<option value="all"'+(fin.locationFilter==='all'?' selected':'')+'>📍 Todos</option>';
   (fin.locations||[]).forEach(function(loc) {
-    var on = fin.locationFilter === loc.id;
     var icon = loc.type==='gym'?'🏋️':'🏠';
-    html += '<button onclick="_finSetLoc(\''+loc.id+'\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid '+(on?C.aqua:C.border)+';background:'+(on?C.aqua+'22':'transparent')+';color:'+(on?C.aqua:C.muted)+';font-size:11px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">'+icon+' '+loc.name+'</button>';
+    html += '<option value="'+loc.id+'"'+(fin.locationFilter===loc.id?' selected':'')+'>'+icon+' '+loc.name+'</option>';
   });
-  html += '</div>';
+  html += '</select></div>';
 
   // ══════════════════════════════════════════════════════════════
   // DASHBOARD — Complete financial overview
@@ -3895,6 +3906,13 @@ function _renderFinance() {
     (fin.manualClients||[]).filter(function(c){return c.active!==false;}).forEach(function(c){ if(!paidClientIds[c.id]) unpaidClients.push({name:c.name,fee:c.monthly_fee,id:c.id,type:'manual',location_id:c.location_id}); });
     var collectedTotal = paidThisMonth.reduce(function(a,i){return a+(+i.amount||0);},0);
     var collectPct = expectedTotal > 0 ? Math.round((collectedTotal/expectedTotal)*100) : 0;
+
+    // Quick action buttons
+    html += '<div style="display:flex;gap:8px;margin-bottom:14px">'
+      + '<button onclick="STATE.fin.showAddIncome=true;STATE.fin.tab=\'income\';_renderFinance()" style="'+btn('aqua')+';flex:1;padding:10px;font-size:12px;border-radius:10px">💵 Ingreso</button>'
+      + '<button onclick="STATE.fin.showAddExpense=true;STATE.fin.tab=\'expenses\';_renderFinance()" style="'+btn('ghost')+';flex:1;padding:10px;font-size:12px;border-radius:10px;color:#f97316;border-color:#f9731644">📤 Gasto</button>'
+      + '<button onclick="STATE.fin.showAddSupplement=true;STATE.fin.tab=\'supplements\';_renderFinance()" style="'+btn('ghost')+';flex:1;padding:10px;font-size:12px;border-radius:10px;color:#8b5cf6;border-color:#8b5cf644">💊 Venta</button>'
+      + '</div>';
 
     // Row 1: Expected vs Balance
     html += '<div style="display:grid;grid-template-columns:'+responsiveGrid(2)+';gap:10px;margin-bottom:12px">';
@@ -5441,18 +5459,37 @@ function renderExerciseCard(ex) {
   var vol = ex.sets.filter(function(s){ return s.w&&s.r; }).reduce(function(a,s){ return a+(+s.w)*(+s.r); }, 0);
   var done = ex.sets.filter(function(s){ return s.w&&s.r; }).length;
   var cols = getCatColor(ex.category||'');
+  var setType = ex.setType || 'normal';
+  var setTypeLabel = setType==='biserie'?'🔄 Bi-serie':setType==='triserie'?'🔄 Tri-serie':setType==='dropset'?'⬇️ Drop set':'';
   var html = '<div style="background:'+C.card+';border:1px solid '+(isOpen?cols[0]:C.border)+';border-radius:18px;margin-bottom:12px;overflow:hidden'+(isOpen?';box-shadow:0 0 20px '+cols[0]+'22':'')+'">'
     +'<div onclick="set({expanded:\''+(isOpen?'':ex.id)+'\'})" style="display:flex;align-items:center;padding:14px 16px;cursor:pointer;border-bottom:'+(isOpen?'1px solid '+C.border:'none')+'">'
     +'<div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,'+cols[0]+'33,'+cols[1]+'18);border:1px solid '+cols[0]+'44;display:flex;align-items:center;justify-content:center;font-size:18px;margin-right:12px">'+ex.icon+'</div>'
-    +'<div><div style="font-size:14px;font-weight:700">'+ex.name+'</div><div style="font-size:11px;color:'+C.muted+';margin-top:2px">'+done+'/'+ex.sets.length+' series · '+vol.toFixed(0)+'kg vol.</div></div>'
-    +'<div style="margin-left:auto;display:flex;gap:8px;align-items:center">'
+    +'<div style="flex:1"><div style="font-size:14px;font-weight:700">'+ex.name+(setTypeLabel?' <span style="font-size:10px;color:'+cols[0]+';font-weight:800">'+setTypeLabel+'</span>':'')+'</div><div style="font-size:11px;color:'+C.muted+';margin-top:2px">'+done+'/'+ex.sets.length+' series · '+vol.toFixed(0)+'kg vol.</div></div>'
+    +'<div style="display:flex;gap:8px;align-items:center">'
     +'<button onclick="event.stopPropagation();removeEx(\''+ex.id+'\')" style="background:transparent;border:none;color:'+C.muted+';font-size:16px;cursor:pointer">✕</button>'
     +'<span style="color:'+C.muted+';font-size:12px">'+(isOpen?'▲':'▼')+'</span>'
     +'</div></div>';
   if (isOpen) {
-    html += '<div style="padding:14px 16px">'
-      // Column headers — now 5 cols: # | KG | REPS | RPE | ✕
-      +'<div style="display:grid;grid-template-columns:24px 1fr 1fr 60px 24px;gap:6px;margin-bottom:8px">'
+    // Set type selector
+    html += '<div style="padding:10px 16px 0;display:flex;gap:6px;flex-wrap:wrap">';
+    [['normal','Normal'],['biserie','🔄 Bi-serie'],['triserie','🔄 Tri-serie'],['dropset','⬇️ Drop set']].forEach(function(t) {
+      var on = setType === t[0];
+      html += '<button onclick="event.stopPropagation();_setExType(\''+ex.id+'\',\''+t[0]+'\')" style="padding:5px 10px;border-radius:8px;border:1px solid '+(on?cols[0]:C.border)+';background:'+(on?cols[0]+'22':'transparent')+';color:'+(on?cols[0]:C.muted)+';font-size:10px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">'+t[1]+'</button>';
+    });
+    html += '</div>';
+
+    html += '<div style="padding:14px 16px">';
+
+    if (setType === 'dropset') {
+      // Drop set: multiple weight entries per set, no reps column header change
+      html += '<div style="font-size:10px;color:'+C.muted+';margin-bottom:8px;line-height:1.5">⬇️ Ingresa cada caída de peso como una serie. El peso va bajando sin descanso.</div>';
+    }
+    if (setType === 'biserie' || setType === 'triserie') {
+      html += '<div style="font-size:10px;color:'+C.muted+';margin-bottom:8px;line-height:1.5">🔄 Registra las series de este ejercicio. Los otros ejercicios del '+(setType==='biserie'?'par':'trío')+' se agregan aparte y se marcan igual.</div>';
+    }
+
+    // Column headers
+    html += '<div style="display:grid;grid-template-columns:24px 1fr 1fr 60px 24px;gap:6px;margin-bottom:8px">'
       +['#','KG','REPS','RPE',''].map(function(h){
         return '<div style="font-size:10px;color:'+C.muted+';text-align:center;letter-spacing:1px;font-weight:700">'+h+'</div>';
       }).join('')
@@ -5798,8 +5835,21 @@ function addExToSession(id) {
   var ex = STATE.exercises.find(function(e){ return e.id===id; });
   if (!ex) return;
   if (STATE.session.find(function(s){ return s.id===id; })) { toast('Ya está en el entrenamiento','err'); return; }
-  var ns = STATE.session.concat([{id:ex.id,name:ex.name,icon:ex.icon,category:ex.category||'',sets:[{w:'',r:''}]}]);
+  var ns = STATE.session.concat([{id:ex.id,name:ex.name,icon:ex.icon,category:ex.category||'',sets:[{w:'',r:''}],setType:'normal'}]);
   set({session:ns, expanded:id, tab:'log'});
+}
+
+function _setExType(exId, type) {
+  STATE.session = STATE.session.map(function(e) {
+    if (e.id !== exId) return e;
+    var updated = Object.assign({}, e, {setType: type});
+    // For dropset, auto-add 3 sets if only 1 exists
+    if (type === 'dropset' && updated.sets.length < 3) {
+      while (updated.sets.length < 3) updated.sets = updated.sets.concat([{w:'',r:''}]);
+    }
+    return updated;
+  });
+  render();
 }
 
 // ══════════════════════════════════════════════════════════════
