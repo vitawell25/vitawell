@@ -186,7 +186,7 @@ var STATE = {
   profileForm:{sex:'',age:'',height:'',weight:'',goals:[],goal:'',level:'',name:'',activityLevel:'moderate'},  savingProfile:false,
   expanded:null, category:null, search:'', progressEx:null,
   detailEx:null, clients:[], selectedClient:null,
-  date:new Date().toISOString().slice(0,10),
+  date:(function(){var d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate()})(),
   sessionNote:'', sessionTags:[], sessionSummaryOpen:false,
   heatmapMonth:null,
   authMode:'login', form:{name:'',email:'',pass:'',role:'client'},
@@ -227,6 +227,13 @@ var STATE = {
     supplementForm: {product_name:'',category:'proteina',sale_price:'',cost_price:'',client_name:'',date:'',notes:''}
   }
 };
+
+// ── LOCAL DATE HELPER (fixes UTC timezone offset for Colombia) ──
+function _localDateStr(d) {
+  d = d || new Date();
+  return d.getFullYear() + '-' + _padZ2(d.getMonth()+1) + '-' + _padZ2(d.getDate());
+}
+function _padZ2(n) { return n < 10 ? '0' + n : '' + n; }
 
 function set(patch, skipRender) {
   Object.assign(STATE, patch);
@@ -564,7 +571,7 @@ function _renderHeatmap(sessions) {
   var now = new Date();
   var streak = 0;
   for (var i = 0; i < 365; i++) {
-    var d = new Date(now.getTime() - i * 86400000).toISOString().slice(0,10);
+    var d = _localDateStr(new Date(now.getTime() - i * 86400000));
     if (dayMap[d]) streak++;
     else if (i > 0) break;
   }
@@ -578,7 +585,7 @@ function _renderHeatmap(sessions) {
 
   var firstDay = new Date(year, month, 1).getDay();
   var daysInMonth = new Date(year, month + 1, 0).getDate();
-  var todayStr = now.toISOString().slice(0,10);
+  var todayStr = _localDateStr(now);
 
   var html = '<div style="background:' + C.card + ';border:1px solid rgba(0,201,167,0.12);border-radius:20px;padding:18px;margin-bottom:16px">';
 
@@ -2085,8 +2092,8 @@ async function loadAllClients() {
     .limit(50);
 
   var now = new Date();
-  var todayStr = now.toISOString().slice(0,10);
-  var yStr = new Date(now.getTime() - 86400000).toISOString().slice(0,10);
+  var todayStr = _localDateStr(now);
+  var yStr = _localDateStr(new Date(now.getTime() - 86400000));
 
   var mine = (r1.data || []);
   var pool = (r2.data || []).filter(function(p) {
@@ -2222,8 +2229,8 @@ async function saveTrainerNote(clientId) {
 function renderTrainer(app) {
   var s = STATE;
   var now = new Date();
-  var todayStr = now.toISOString().slice(0,10);
-  var yStr = new Date(now.getTime()-86400000).toISOString().slice(0,10);
+  var todayStr = _localDateStr(now);
+  var yStr = _localDateStr(new Date(now.getTime()-86400000));
 
   // ── Top nav ──────────────────────────────────────────────────
   var html = '<div style="min-height:100vh;background:#0A0E14;color:' + C.white + '">'
@@ -2819,7 +2826,7 @@ function _finPeriodRange() {
     start = new Date(now.getFullYear(), now.getMonth(), 1);
     end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   }
-  return { start: start.toISOString().slice(0,10), end: end.toISOString().slice(0,10) };
+  return { start: _localDateStr(start), end: _localDateStr(end) };
 }
 
 function _finFilteredIncome() {
@@ -2909,7 +2916,7 @@ async function _finSaveIncome() {
     amount: +f.amount,
     category: f.category || 'mensualidad',
     description: f.description || null,
-    date: f.date || new Date().toISOString().slice(0,10),
+    date: f.date || _localDateStr(),
     month_ref: f.month_ref || null,
     status: f.status || 'paid'
   };
@@ -2942,7 +2949,7 @@ async function _finSaveExpense() {
     amount: +f.amount,
     category: f.category || 'otro',
     description: f.description || null,
-    date: f.date || new Date().toISOString().slice(0,10),
+    date: f.date || _localDateStr(),
     is_recurring: !!f.is_recurring
   };
   var r = await SB.from('expenses').insert(payload).select();
@@ -2975,7 +2982,7 @@ async function _finSaveClass() {
     client_name: f.client_name || null,
     location_id: f.location_id || null,
     staff_id: f.staff_id || null,
-    date: f.date || new Date().toISOString().slice(0,10),
+    date: f.date || _localDateStr(),
     time_start: f.time_start || null,
     time_end: f.time_end || null,
     status: 'scheduled',
@@ -3206,12 +3213,12 @@ function _finCancelEdit() {
 
 // ── DAY VIEW helpers ──
 function _classesViewDate() {
-  return STATE.fin.classesDate || new Date().toISOString().slice(0,10);
+  return STATE.fin.classesDate || _localDateStr();
 }
 function _classesNavDay(offset) {
   var d = new Date(_classesViewDate());
   d.setDate(d.getDate() + offset);
-  STATE.fin.classesDate = d.toISOString().slice(0,10);
+  STATE.fin.classesDate = _localDateStr(d);
   _renderFinance();
 }
 function _classesGoToday() {
@@ -3340,7 +3347,7 @@ async function _finSaveSupplement() {
     sale_price: +f.sale_price,
     cost_price: +f.cost_price || 0,
     client_name: f.client_name || null,
-    date: f.date || new Date().toISOString().slice(0,10),
+    date: f.date || _localDateStr(),
     notes: f.notes || null
   };
   var r = await SB.from('supplement_sales').insert(payload).select();
@@ -3351,7 +3358,7 @@ async function _finSaveSupplement() {
   await SB.from('income').insert({
     trainer_id: tid, amount: +f.sale_price, category: 'suplemento',
     description: f.product_name + (f.client_name ? ' → ' + f.client_name : ''),
-    date: f.date || new Date().toISOString().slice(0,10), status: 'paid',
+    date: f.date || _localDateStr(), status: 'paid',
     client_name: f.client_name || null
   }).select().then(function(ir){ if(ir.data) STATE.fin.income=[ir.data[0]].concat(STATE.fin.income); });
   STATE.fin.showAddSupplement = false;
@@ -3410,37 +3417,40 @@ var SUPP_CATS = [
 // ── CLASS COUNTER: count completed classes this month per client ──
 function _getMonthlyClassCount(clientId, manualClientId) {
   var now = new Date();
-  var monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
-  var monthEnd = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
-  return (STATE.fin.classes||[]).filter(function(c) {
-    if (c.status !== 'completed') return false;
-    if (c.date < monthStart || c.date > monthEnd) return false;
-    if (clientId && c.client_id === clientId) return true;
-    if (manualClientId && c.manual_client_id === manualClientId) return true;
-    return false;
-  }).length;
+  var monthStart = _localDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+  var monthEnd = _localDateStr(new Date(now.getFullYear(), now.getMonth()+1, 0));
+  var completed = 0, scheduled = 0;
+  (STATE.fin.classes||[]).forEach(function(c) {
+    if (c.date < monthStart || c.date > monthEnd) return;
+    if (c.status === 'cancelled') return;
+    var match = false;
+    if (clientId && c.client_id === clientId) match = true;
+    if (manualClientId && c.manual_client_id === manualClientId) match = true;
+    if (!match) return;
+    if (c.status === 'completed') completed++;
+    else scheduled++;
+  });
+  return {completed: completed, scheduled: scheduled, total: completed + scheduled};
 }
 
 function _getClientClassInfo(clientId, manualClientId) {
-  var taken = _getMonthlyClassCount(clientId, manualClientId);
-  var total = 0;
-  // Check manual clients
+  var counts = _getMonthlyClassCount(clientId, manualClientId);
+  var planTotal = 0;
   if (manualClientId) {
     var mc = (STATE.fin.manualClients||[]).find(function(c){return c.id===manualClientId;});
-    if (mc) total = +mc.classes_per_month || +(mc.sessions_per_week||3)*4 || 12;
+    if (mc) planTotal = +mc.classes_per_month || +(mc.sessions_per_week||3)*4 || 12;
   }
-  // Check app client plans
   if (clientId) {
     var plan = (STATE.fin.clientPlans||[]).find(function(p){return p.client_id===clientId && p.active!==false;});
-    if (plan) total = +plan.classes_per_month || +(plan.sessions_per_week||3)*4 || 12;
-    // Also check manual clients
+    if (plan) planTotal = +plan.classes_per_month || +(plan.sessions_per_week||3)*4 || 12;
     if (!plan) {
       var mc2 = (STATE.fin.manualClients||[]).find(function(c){return c.id===clientId;});
-      if (mc2) total = +mc2.classes_per_month || +(mc2.sessions_per_week||3)*4 || 12;
+      if (mc2) planTotal = +mc2.classes_per_month || +(mc2.sessions_per_week||3)*4 || 12;
     }
   }
-  var remaining = Math.max(0, total - taken);
-  return {taken:taken, total:total, remaining:remaining, finished:total>0 && remaining===0};
+  var taken = counts.completed + counts.scheduled;
+  var remaining = Math.max(0, planTotal - taken);
+  return {taken:taken, completed:counts.completed, scheduled:counts.scheduled, total:planTotal, remaining:remaining, finished:planTotal>0 && remaining===0};
 }
 
 function _classCounterHtml(clientId, manualClientId) {
@@ -3449,11 +3459,15 @@ function _classCounterHtml(clientId, manualClientId) {
   var total = info.total || 12;
   var pct = total > 0 ? Math.min(100, Math.round((info.taken/total)*100)) : 0;
   var barColor = info.finished ? '#ef4444' : info.remaining <= 2 ? '#f59e0b' : C.aqua;
+  var label = info.completed + '✓';
+  if (info.scheduled > 0) label += ' +' + info.scheduled + '📅';
+  label += ' / ' + total;
   return '<div style="margin-top:4px;display:flex;align-items:center;gap:8px">'
     + '<div style="flex:1;height:4px;background:'+C.border+';border-radius:2px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+barColor+';border-radius:2px"></div></div>'
-    + '<span style="font-size:10px;font-weight:800;color:'+barColor+';white-space:nowrap">'+info.taken+'/'+total+(info.finished?' ⚠️ FINALIZADO':'')+'</span>'
+    + '<span style="font-size:10px;font-weight:800;color:'+barColor+';white-space:nowrap">'+label+(info.finished?' ⚠️':'')+'</span>'
     + '</div>';
 }
+
 
 // ══════════════════════════════════════════════════════════════
 // CALENDAR INTEGRATION — .ics + Google Calendar URL
@@ -3545,7 +3559,7 @@ function _classEventData(classObj) {
   var loc = (STATE.fin.locations||[]).find(function(l){return l.id===cl.location_id;});
   var locAddress = loc && loc.address ? loc.address : locName;
   var staffName = cl.staff_id ? _getStaffName(cl.staff_id) : '';
-  var dateStr = cl.date || new Date().toISOString().slice(0,10);
+  var dateStr = cl.date || _localDateStr();
   // Supabase TIME fields can come as "08:00:00" or "08:00" — normalize to HH:MM
   var startTime = (cl.time_start || '08:00').slice(0,5);
   var endTime = cl.time_end ? cl.time_end.slice(0,5) : (_padZ(Math.min(23, parseInt(startTime.split(':')[0])+1))+':'+startTime.split(':')[1]);
@@ -3616,8 +3630,8 @@ async function _gcalCreateEvent(classObj) {
 async function _gcalFetchToday() {
   if (!_gcalAccessToken) return [];
   var today = new Date();
-  var start = today.toISOString().slice(0,10) + 'T00:00:00-05:00';
-  var end = today.toISOString().slice(0,10) + 'T23:59:59-05:00';
+  var start = _localDateStr(today) + 'T00:00:00-05:00';
+  var end = _localDateStr(today) + 'T23:59:59-05:00';
   try {
     var r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + encodeURIComponent(start) + '&timeMax=' + encodeURIComponent(end) + '&singleEvents=true&orderBy=startTime', {
       headers: { 'Authorization': 'Bearer ' + _gcalAccessToken }
@@ -3681,7 +3695,7 @@ function _addToCalendar(classId) {
 }
 
 function _exportTodayClasses() {
-  var todayStr = new Date().toISOString().slice(0,10);
+  var todayStr = _localDateStr();
   var todayCls = (STATE.fin.classes||[]).filter(function(c){return c.date===todayStr && c.status==='scheduled';});
   if (!todayCls.length) { toast('No hay clases programadas para hoy','err'); return; }
 
@@ -3733,7 +3747,7 @@ function _renderFinance() {
   var s = STATE;
   var fin = s.fin;
   var now = new Date();
-  var todayStr = now.toISOString().slice(0,10);
+  var todayStr = _localDateStr(now);
 
   // Filtered data
   var incFiltered = _finFilteredIncome();
@@ -4068,7 +4082,7 @@ function _renderFinance() {
     var dayNum = viewD.getDate();
     var monthName = _MONTH_NAMES_S[viewD.getMonth()];
     var isToday = viewDate === todayStr;
-    var isTomorrow = (function(){ var t=new Date(); t.setDate(t.getDate()+1); return viewDate===t.toISOString().slice(0,10); })();
+    var isTomorrow = (function(){ var t=new Date(); t.setDate(t.getDate()+1); return viewDate===_localDateStr(t); })();
     var dayLabel = isToday ? 'Hoy' : isTomorrow ? 'Mañana' : dayName;
 
     // Day classes for this view date
@@ -4336,8 +4350,8 @@ function _renderClientList() {
   if (!mount) return;
   var s = STATE;
   var now = new Date();
-  var todayStr = now.toISOString().slice(0,10);
-  var yStr = new Date(now.getTime()-86400000).toISOString().slice(0,10);
+  var todayStr = _localDateStr(now);
+  var yStr = _localDateStr(new Date(now.getTime()-86400000));
   var q = (s.clientSearch||'').toLowerCase().trim();
   var filter = s.clientFilter || 'all';
 
@@ -4545,8 +4559,8 @@ function renderClient(app) {
   if (s.tab === 'log') {
     html += '<div class="fade">'
       +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'
-      +'<input type="date" value="'+s.date+'" max="'+new Date().toISOString().slice(0,10)+'" oninput="set({date:this.value})" style="background:'+C.card+';border:1.5px solid '+C.border+';color:'+C.white+';padding:10px 14px;border-radius:50px;font-size:13px;font-weight:600;flex:1"/>'
-      +'<button onclick="set({date:new Date().toISOString().slice(0,10)})" style="'+btn('ghost')+';padding:10px 14px;font-size:11px">Hoy</button>'
+      +'<input type="date" value="'+s.date+'" max="'+_localDateStr()+'" oninput="set({date:this.value})" style="background:'+C.card+';border:1.5px solid '+C.border+';color:'+C.white+';padding:10px 14px;border-radius:50px;font-size:13px;font-weight:600;flex:1"/>'
+      +'<button onclick="set({date:_localDateStr()})" style="'+btn('ghost')+';padding:10px 14px;font-size:11px">Hoy</button>'
       +'<button onclick="openExModal()" style="'+btn('aqua')+'">+ Ejercicio</button>'
       +'</div>';
     if (!s.session.length) {
@@ -6051,7 +6065,7 @@ function _restoreDraftSession() {
     if (!draft || !draft.session || !draft.session.length) return;
     // Only restore if draft is from today
     var draftDate = (draft.savedAt || '').slice(0,10);
-    var today = new Date().toISOString().slice(0,10);
+    var today = _localDateStr();
     if (draftDate !== today) { localStorage.removeItem('vitawell-draft-session'); return; }
     if (confirm('Tienes una sesión sin guardar de hoy (' + draft.session.length + ' ejercicios). ¿Recuperarla?')) {
       STATE.session = draft.session;
