@@ -1074,26 +1074,51 @@ function renderRoutineBuilder() {
 
     rb.exercises.forEach(function(ex, i) {
       var cols = getCatColor(ex.category || '');
-      html += '<div style="background:#0f1e35;border:1px solid ' + cols[0] + '33;border-radius:16px;margin-bottom:10px;overflow:hidden">'
+      var exSetType = ex.setType || 'normal';
+      var typeColors = {normal:['#00c9a7','Normal'],biserie:['#818cf8','🔄 Bi-serie'],triserie:['#f97316','🔄 Tri-serie'],dropset:['#ef4444','⬇️ Drop set']};
+      var tc = typeColors[exSetType] || typeColors.normal;
+      html += '<div style="background:#0f1e35;border:1px solid ' + cols[0] + '33;border-radius:16px;margin-bottom:10px;overflow:hidden'+(exSetType!=='normal'?';border-left:3px solid '+tc[0]:'')+'">'
         // Exercise header
         + '<div style="display:flex;align-items:center;padding:12px 14px;background:' + cols[0] + '0a">'
           + '<div style="width:34px;height:34px;border-radius:10px;background:' + cols[0] + '22;display:flex;align-items:center;justify-content:center;font-size:16px;margin-right:10px;flex-shrink:0">' + ex.icon + '</div>'
           + '<div style="flex:1">'
-            + '<div style="font-size:13px;font-weight:800">' + ex.name + '</div>'
+            + '<div style="font-size:13px;font-weight:800">' + ex.name + (exSetType!=='normal'?' <span style="font-size:10px;color:'+tc[0]+';font-weight:800">'+tc[1]+'</span>':'') + '</div>'
             + '<div style="font-size:10px;color:' + cols[0] + ';font-weight:800">' + (ex.category || '').toUpperCase() + '</div>'
           + '</div>'
           + '<button onclick="rbRemoveEx(' + i + ')" style="background:transparent;border:none;color:#4a6480;font-size:16px;cursor:pointer;padding:4px 8px" onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#4a6480\'">✕</button>'
         + '</div>'
+        // Set type selector
+        + '<div style="padding:8px 14px;display:flex;gap:5px;border-bottom:1px solid #16285044">';
+      [['normal','Normal','#00c9a7'],['biserie','🔄 Bi-serie','#818cf8'],['triserie','🔄 Tri-serie','#f97316'],['dropset','⬇️ Drop set','#ef4444']].forEach(function(t) {
+        var on = exSetType === t[0];
+        html += '<button onclick="rbUpdEx(' + i + ',\'setType\',\''+t[0]+'\');renderRoutineBuilder()" style="padding:5px 10px;border-radius:8px;border:1px solid '+(on?t[2]:'#1e3560')+';background:'+(on?t[2]+'22':'transparent')+';color:'+(on?t[2]:'#4a6480')+';font-size:10px;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif">'+t[1]+'</button>';
+      });
+      html += '</div>'
         // Sets/Reps/Weight row
-        + '<div style="padding:12px 14px">'
-          + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;gap:8px;margin-bottom:6px">'
+        + '<div style="padding:12px 14px">';
+
+      if (exSetType === 'dropset') {
+        // Drop set config: show drops
+        var drops = ex.drops || [{w:'',r:''},{w:'',r:''},{w:'',r:''}];
+        html += '<div style="font-size:10px;color:#ef4444;font-weight:700;margin-bottom:8px">⬇️ Configura las caidas de peso:</div>';
+        drops.forEach(function(drop, di) {
+          html += '<div style="display:grid;grid-template-columns:28px 1fr 1fr 24px;gap:6px;margin-bottom:4px">'
+            + '<span style="font-size:11px;color:'+(di===0?'#4a6480':'#ef4444')+';text-align:center;padding-top:10px">'+(di===0?(di+1):'⬇')+'</span>'
+            + '<input type="number" value="'+(drop.w||'')+'" oninput="rbUpdDrop('+i+','+di+',\'w\',this.value)" placeholder="kg" style="background:#0a1628;border:1.5px solid #ef444444;color:#e8f4f8;padding:8px;border-radius:8px;text-align:center;font-size:14px;font-weight:800;width:100%"/>'
+            + '<input type="number" value="'+(drop.r||'')+'" oninput="rbUpdDrop('+i+','+di+',\'r\',this.value)" placeholder="reps" style="background:#0a1628;border:1.5px solid #162850;color:#e8f4f8;padding:8px;border-radius:8px;text-align:center;font-size:14px;font-weight:800;width:100%"/>'
+            + '<button onclick="rbRemoveDrop('+i+','+di+')" style="background:transparent;border:none;color:#4a648044;font-size:14px;cursor:pointer;padding-top:8px">✕</button>'
+            + '</div>';
+        });
+        html += '<button onclick="rbAddDrop('+i+')" style="width:100%;background:transparent;border:1px dashed #ef444444;color:#ef4444;padding:8px;border-radius:8px;font-size:11px;font-weight:700;margin-top:4px;cursor:pointer;font-family:Nunito,sans-serif">+ Agregar caida</button>';
+      } else {
+        // Normal / Bi-serie / Tri-serie config
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;gap:8px;margin-bottom:6px">'
             + '<div style="font-size:9px;color:#4a6480;text-align:center;letter-spacing:1px;font-weight:700">SERIES</div>'
             + '<div style="font-size:9px;color:#4a6480;text-align:center;letter-spacing:1px;font-weight:700">REPS</div>'
             + '<div style="font-size:9px;color:#00c9a7;text-align:center;letter-spacing:1px;font-weight:700">PESO kg</div>'
             + '<div style="font-size:9px;color:#818cf8;text-align:center;letter-spacing:1px;font-weight:700">DESCANSO</div>'
           + '</div>'
           + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 80px;gap:8px">'
-            // Sets stepper
             + '<div style="display:flex;align-items:center">'
               + '<button onclick="rbUpdEx(' + i + ',\'sets\',Math.max(1,(+(document.getElementById(\'rbs-' + i + '\').value)||3)-1));document.getElementById(\'rbs-' + i + '\').value=STATE.rb.exercises[' + i + '].sets" '
                 + 'style="background:#162850;border:none;color:#4a6480;width:22px;height:36px;border-radius:6px 0 0 6px;cursor:pointer;font-size:16px;flex-shrink:0">−</button>'
@@ -1103,24 +1128,23 @@ function renderRoutineBuilder() {
               + '<button onclick="rbUpdEx(' + i + ',\'sets\',Math.min(20,(+(document.getElementById(\'rbs-' + i + '\').value)||3)+1));document.getElementById(\'rbs-' + i + '\').value=STATE.rb.exercises[' + i + '].sets" '
                 + 'style="background:#162850;border:none;color:#4a6480;width:22px;height:36px;border-radius:0 6px 6px 0;cursor:pointer;font-size:16px;flex-shrink:0">+</button>'
             + '</div>'
-            // Reps
             + '<input type="number" inputmode="numeric" min="1" max="100" value="' + (ex.reps || 10) + '" '
               + 'oninput="rbUpdEx(' + i + ',\'reps\',this.value)" '
               + 'style="background:#0a1628;border:1.5px solid #162850;color:#e8f4f8;padding:8px;border-radius:8px;text-align:center;font-size:15px;font-weight:800;width:100%"/>'
-            // Weight
             + '<input type="number" inputmode="decimal" min="0" step="2.5" value="' + (ex.weight || '') + '" '
               + 'oninput="rbUpdEx(' + i + ',\'weight\',this.value)" placeholder="—" '
               + 'style="background:#0a1628;border:1.5px solid #00c9a744;color:#00c9a7;padding:8px;border-radius:8px;text-align:center;font-size:15px;font-weight:800;width:100%"/>'
-            // Rest
             + '<select onchange="rbUpdEx(' + i + ',\'rest\',this.value)" '
               + 'style="background:#0a1628;border:1px solid #162850;color:#4a6480;border-radius:8px;padding:8px 4px;font-size:11px;font-weight:700;width:100%;cursor:pointer">'
               + ['30s','60s','90s','2min','3min','5min'].map(function(r) {
                   return '<option value="' + r + '"' + (ex.rest === r ? ' selected' : '') + '>' + r + '</option>';
                 }).join('')
             + '</select>'
-          + '</div>'
-          // Note
-          + '<textarea oninput="rbUpdEx(' + i + ',\'note\',this.value)" placeholder="Indicación técnica... (opcional)" '
+          + '</div>';
+      }
+
+      // Note
+      html += '<textarea oninput="rbUpdEx(' + i + ',\'note\',this.value)" placeholder="Indicación técnica... (opcional)" '
             + 'style="width:100%;background:transparent;border:none;border-top:1px solid #162850;color:#4a6480;font-size:11px;font-family:Nunito,sans-serif;resize:none;padding:8px 0 0;margin-top:8px;outline:none;line-height:1.5;box-sizing:border-box">'
             + (ex.note || '') + '</textarea>'
         + '</div>'
@@ -1289,13 +1313,35 @@ function rbToggleEx(id) {
 
 function rbUpdEx(i, field, val) {
   if (!STATE.rb || !STATE.rb.exercises[i]) return;
-  STATE.rb.exercises[i][field] = field === 'note' ? val : (val === '' ? '' : +val || val);
-  // Update only the affected input's sibling display, no full re-render
-  // for sets stepper sync
+  STATE.rb.exercises[i][field] = field === 'note' ? val : (field === 'setType' ? val : (val === '' ? '' : +val || val));
   if (field === 'sets') {
     var inp = document.getElementById('rbs-' + i);
     if (inp) inp.value = STATE.rb.exercises[i].sets;
   }
+  // Init drops for dropset
+  if (field === 'setType' && val === 'dropset' && !STATE.rb.exercises[i].drops) {
+    STATE.rb.exercises[i].drops = [{w:'',r:''},{w:'',r:''},{w:'',r:''}];
+  }
+}
+
+function rbUpdDrop(exIdx, dropIdx, field, val) {
+  if (!STATE.rb || !STATE.rb.exercises[exIdx]) return;
+  if (!STATE.rb.exercises[exIdx].drops) STATE.rb.exercises[exIdx].drops = [{w:'',r:''},{w:'',r:''},{w:'',r:''}];
+  STATE.rb.exercises[exIdx].drops[dropIdx] = STATE.rb.exercises[exIdx].drops[dropIdx] || {w:'',r:''};
+  STATE.rb.exercises[exIdx].drops[dropIdx][field] = val;
+}
+
+function rbAddDrop(exIdx) {
+  if (!STATE.rb || !STATE.rb.exercises[exIdx]) return;
+  if (!STATE.rb.exercises[exIdx].drops) STATE.rb.exercises[exIdx].drops = [];
+  STATE.rb.exercises[exIdx].drops.push({w:'',r:''});
+  renderRoutineBuilder();
+}
+
+function rbRemoveDrop(exIdx, dropIdx) {
+  if (!STATE.rb || !STATE.rb.exercises[exIdx] || !STATE.rb.exercises[exIdx].drops) return;
+  STATE.rb.exercises[exIdx].drops = STATE.rb.exercises[exIdx].drops.filter(function(_,i){return i!==dropIdx;});
+  renderRoutineBuilder();
 }
 
 function rbRemoveEx(i) {
@@ -5846,10 +5892,32 @@ function addExToSession(id) {
 }
 
 function _setExType(exId, type) {
+  var ex = STATE.session.find(function(e){return e.id===exId;});
+  // If exercise has a trainer-assigned setType, warn the client
+  if (ex && ex._trainerSetType && ex._trainerSetType !== 'normal' && type !== ex._trainerSetType) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(10,14,20,0.9);display:flex;align-items:center;justify-content:center;animation:fadeUp .3s ease';
+    overlay.innerHTML = '<div style="background:#0D1420;border:2px solid #f59e0b44;border-radius:20px;padding:28px;text-align:center;max-width:320px;margin:20px">'
+      + '<div style="font-size:48px;margin-bottom:12px">😡🏋️</div>'
+      + '<div style="font-size:16px;font-weight:800;color:#E8F4F8;margin-bottom:16px">Tu entrenador diseñó esta rutina para ti</div>'
+      + '<div style="display:flex;gap:8px;justify-content:center">'
+      + '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="padding:12px 20px;border-radius:12px;background:linear-gradient(135deg,#00c9a7,#a8e63d);border:none;color:#0a1628;font-weight:800;font-size:13px;cursor:pointer;font-family:Nunito,sans-serif">Mantener rutina</button>'
+      + '<button id="force-change-btn" style="padding:12px 20px;border-radius:12px;border:1px solid #f59e0b44;background:transparent;color:#f59e0b;font-weight:800;font-size:13px;cursor:pointer;font-family:Nunito,sans-serif">Modificar igual</button>'
+      + '</div></div>';
+    document.body.appendChild(overlay);
+    document.getElementById('force-change-btn').onclick = function() {
+      overlay.remove();
+      _forceSetExType(exId, type);
+    };
+    return;
+  }
+  _forceSetExType(exId, type);
+}
+
+function _forceSetExType(exId, type) {
   STATE.session = STATE.session.map(function(e) {
     if (e.id !== exId) return e;
     var updated = Object.assign({}, e, {setType: type});
-    // For dropset, auto-add 3 sets if only 1 exists
     if (type === 'dropset' && updated.sets.length < 3) {
       while (updated.sets.length < 3) updated.sets = updated.sets.concat([{w:'',r:''}]);
     }
