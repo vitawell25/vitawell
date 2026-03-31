@@ -2424,6 +2424,410 @@ async function saveTrainerFeedback(sessionId, loadAdjustment) {
 
 
 function _renderHeatmap(sessions) {
+  if (!sessions || !sessions.length) {
+    return '<div style="padding:40px 20px;text-align:center;color:' + C.muted + '">'
+      + '<div style="font-size:48px;margin-bottom:12px">📅</div>'
+      + '<div style="font-size:16px;font-weight:800">Sin entrenamientos aún</div>'
+      + '<div style="font-size:12px;margin-top:8px">Agrega tu primer ejercicio para ver el calendario</div>'
+      + '</div>';
+  }
+ 
+  var html = '';
+  var now = new Date();
+  
+  // Crear mapa de sesiones por fecha
+  var dateMap = {};
+  sessions.forEach(function(s) {
+    var dateStr = (s.date || '').slice(0, 10); // YYYY-MM-DD
+    if (dateStr && dateStr.length === 10) {
+      if (!dateMap[dateStr]) dateMap[dateStr] = [];
+      dateMap[dateStr].push(s);
+    }
+  });
+ 
+  // CALCULAR RACHA
+  var streak = 0;
+  var currentDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  while (true) {
+    var dateStr = currentDate.getFullYear() + '-' 
+      + String(currentDate.getMonth() + 1).padStart(2, '0') + '-'
+      + String(currentDate.getDate()).padStart(2, '0');
+    
+    if (dateMap[dateStr] && dateMap[dateStr].length > 0) {
+      streak++;
+      currentDate.setDate(currentDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+ 
+  // HEADER: RACHA
+  html += '<div style="'
+    + 'background:linear-gradient(135deg,' + C.aqua + '22,' + C.lime + '11);'
+    + 'border:1.5px solid ' + C.aqua + '44;'
+    + 'border-radius:20px;'
+    + 'padding:20px;'
+    + 'margin-bottom:24px;'
+    + 'display:flex;'
+    + 'align-items:center;'
+    + 'gap:16px'
+    + '">'
+      + '<div style="'
+        + 'width:70px;'
+        + 'height:70px;'
+        + 'border-radius:16px;'
+        + 'background:linear-gradient(135deg,' + C.aqua + ',' + C.lime + ');'
+        + 'display:flex;'
+        + 'align-items:center;'
+        + 'justify-content:center;'
+        + 'font-size:32px;'
+        + 'flex-shrink:0'
+        + '">'
+        + (streak > 0 ? '🔥' : '💪')
+      + '</div>'
+      + '<div>'
+        + '<div style="font-size:32px;font-weight:900;color:' + C.white + '">' + streak + '</div>'
+        + '<div style="font-size:13px;color:' + C.muted + ';margin-top:2px">días de racha</div>'
+      + '</div>'
+    + '</div>';
+ 
+  // TÍTULO: ÚLTIMOS 30 DÍAS
+  html += '<div style="font-size:10px;letter-spacing:2.5px;color:' + C.muted + ';font-weight:700;margin-bottom:14px">ÚLTIMOS 30 DÍAS</div>';
+ 
+  // CALENDARIO: Grid de 7 columnas
+  html += '<div style="'
+    + 'display:grid;'
+    + 'grid-template-columns:repeat(7,1fr);'
+    + 'gap:8px;'
+    + 'margin-bottom:24px'
+    + '">';
+ 
+  // Generar últimos 30 días (hacia atrás desde hoy)
+  for (var i = 29; i >= 0; i--) {
+    var d = new Date();
+    d.setDate(d.getDate() - i);
+    
+    var dateStr = d.getFullYear() + '-'
+      + String(d.getMonth() + 1).padStart(2, '0') + '-'
+      + String(d.getDate()).padStart(2, '0');
+    
+    var hasSessions = dateMap[dateStr] && dateMap[dateStr].length > 0;
+    var dayOfWeek = ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa'][d.getDay()];
+    var dayNum = d.getDate();
+    var sessionCount = hasSessions ? dateMap[dateStr].length : 0;
+    
+    var isToday = (d.toDateString() === now.toDateString());
+ 
+    html += '<button '
+      + 'onclick="selectDayFromCalendar(\'' + dateStr + '\')" '
+      + 'style="'
+        + 'padding:12px 8px;'
+        + 'border-radius:12px;'
+        + 'border:2.5px solid ' + (hasSessions ? C.aqua + '88' : (isToday ? C.lime + '44' : C.border)) + ';'
+        + 'background:' + (hasSessions ? C.aqua + '22' : (isToday ? C.lime + '11' : 'transparent')) + ';'
+        + 'color:' + (hasSessions ? C.aqua : (isToday ? C.lime : C.muted)) + ';'
+        + 'font-weight:800;'
+        + 'font-size:11px;'
+        + 'cursor:pointer;'
+        + 'transition:all .25s;'
+        + 'position:relative;'
+        + 'display:flex;'
+        + 'flex-direction:column;'
+        + 'align-items:center;'
+        + 'gap:3px;'
+        + 'min-height:70px;'
+        + 'justify-content:center'
+        + '" '
+        + 'title="' + dayNum + ' ' + dayOfWeek + (hasSessions ? ' - ' + sessionCount + ' entrenamientos' : '') + '" '
+        + 'onmouseover="this.style.transform=\'scale(1.05)\';this.style.boxShadow=\'0 4px 12px ' + (hasSessions ? C.aqua + '33' : C.border) + '\';" '
+        + 'onmouseout="this.style.transform=\'scale(1)\';this.style.boxShadow=\'none\';" '
+      + '>'
+        + '<div style="font-size:14px;font-weight:900;line-height:1">' 
+          + (hasSessions ? '✓' : dayNum) 
+        + '</div>'
+        + '<div style="font-size:9px;letter-spacing:0.5px">' + dayOfWeek + '</div>'
+        + (sessionCount > 1 ? '<div style="font-size:8px;opacity:0.7">×' + sessionCount + '</div>' : '')
+      + '</button>';
+  }
+ 
+  html += '</div>';
+ 
+  // SESIONES RECIENTES
+  html += '<div style="font-size:10px;letter-spacing:2.5px;color:' + C.muted + ';font-weight:700;margin-bottom:14px;margin-top:20px">ÚLTIMAS SESIONES</div>';
+ 
+  // Mostrar últimas 5 sesiones
+  var recentSessions = sessions.slice(0, 5);
+  
+  recentSessions.forEach(function(ss) {
+    var dateStr = (ss.date || '').slice(0, 10);
+    var groups = groupSets(ss.session_sets || []);
+    var totalVol = Math.round((ss.session_sets || []).reduce(function(a, x) {
+      return a + (+(x.weight) || 0) * (+(x.reps) || 0);
+    }, 0));
+ 
+    html += '<button '
+      + 'onclick="selectDayFromCalendar(\'' + dateStr + '\')" '
+      + 'style="'
+        + 'width:100%;'
+        + 'padding:14px 16px;'
+        + 'background:' + C.card + ';'
+        + 'border:1.5px solid ' + C.border + ';'
+        + 'border-radius:14px;'
+        + 'margin-bottom:10px;'
+        + 'cursor:pointer;'
+        + 'transition:all .2s;'
+        + 'text-align:left;'
+        + 'color:' + C.white + ';'
+      + '" '
+      + 'onmouseover="this.style.background=\'' + C.aqua + '11\';this.style.borderColor=\'' + C.aqua + '66\';" '
+      + 'onmouseout="this.style.background=\'' + C.card + '\';this.style.borderColor=\'' + C.border + '\';" '
+      + '>'
+        + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">'
+          + '<div style="font-size:13px;font-weight:800;color:' + C.aqua + '">📅 ' + dateStr + '</div>'
+          + '<div style="margin-left:auto;display:flex;gap:8px;font-size:11px;color:' + C.muted + '">'
+            + '<span>🏋️ ' + groups.length + '</span>'
+            + '<span>⚖️ ' + totalVol + 'kg</span>'
+          + '</div>'
+        + '</div>'
+        + '<div style="font-size:12px;color:' + C.muted + ';line-height:1.5">'
+          + groups.slice(0, 3).map(function(g) {
+              return '<div>• ' + g.icon + ' ' + g.name + ' (' + g.sets.length + ' series)</div>';
+            }).join('')
+          + (groups.length > 3 ? '<div style="color:' + C.lime + '">+ ' + (groups.length - 3) + ' más</div>' : '')
+        + '</div>'
+      + '</button>';
+  });
+ 
+  return html;
+}
+ 
+/**
+ * 📅 SELECCIONAR DÍA DEL CALENDARIO Y MOSTRAR DETALLES
+ */
+function selectDayFromCalendar(dateStr) {
+  if (!dateStr || dateStr.length !== 10) {
+    return;
+  }
+ 
+  var session = STATE.sessions.find(function(s) {
+    return (s.date || '').slice(0, 10) === dateStr;
+  });
+ 
+  if (!session) {
+    toast('❌ No hay entrenamientos ese día', 'warn');
+    return;
+  }
+ 
+  // Guardar en STATE
+  STATE.selectedSessionId = session.id;
+  STATE.selectedSessionDate = dateStr;
+ 
+  // Renderizar detalle
+  renderSessionDetail(session);
+}
+ 
+/**
+ * 📊 RENDERIZAR DETALLES DE SESIÓN EN MODAL
+ */
+function renderSessionDetail(session) {
+  if (!session || !session.id) return;
+ 
+  var groups = groupSets(session.session_sets || []);
+  var totalVol = Math.round((session.session_sets || []).reduce(function(a, x) {
+    return a + (+(x.weight) || 0) * (+(x.reps) || 0);
+  }, 0));
+ 
+  var avgRpe = (function() {
+    var withRpe = (session.session_sets || []).filter(function(x) { return x.rpe; });
+    if (!withRpe.length) return null;
+    return (withRpe.reduce(function(a, x) { return a + (+x.rpe); }, 0) / withRpe.length).toFixed(1);
+  })();
+ 
+  var html = '<div '
+    + 'id="session-detail-modal" '
+    + 'onclick="if(event.target.id===\'session-detail-modal\') closeSessionDetail()" '
+    + 'style="'
+      + 'position:fixed;'
+      + 'inset:0;'
+      + 'z-index:2000;'
+      + 'background:rgba(10,22,40,.95);'
+      + 'backdrop-filter:blur(12px);'
+      + '-webkit-backdrop-filter:blur(12px);'
+      + 'display:flex;'
+      + 'align-items:flex-end;'
+      + 'justify-content:center;'
+      + 'padding:20px;'
+      + 'animation:slideUp .3s ease'
+    + '">'
+    + '<div style="'
+      + 'background:' + C.card + ';'
+      + 'border:1.5px solid ' + C.border + ';'
+      + 'border-radius:24px 24px 0 0;'
+      + 'width:100%;'
+      + 'max-width:640px;'
+      + 'max-height:90vh;'
+      + 'overflow-y:auto;'
+      + 'padding:24px;'
+    + '">'
+ 
+      // HEADER
+      + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;margin-top:-4px">'
+        + '<button onclick="closeSessionDetail()" style="background:transparent;border:none;color:' + C.muted + ';font-size:24px;cursor:pointer;padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center">✕</button>'
+        + '<div style="flex:1">'
+          + '<div style="font-size:18px;font-weight:900;color:' + C.white + '">📅 ' + session.date + '</div>'
+          + '<div style="font-size:12px;color:' + C.muted + ';margin-top:4px">'
+            + groups.length + ' ejercicios · ' + totalVol + 'kg volumen'
+            + (avgRpe ? ' · RPE ' + avgRpe : '')
+          + '</div>'
+        + '</div>'
+      + '</div>'
+ 
+      // NOTAS
+      + (session.notes ? '<div style="'
+        + 'background:' + C.aqua + '15;'
+        + 'border:1px solid ' + C.aqua + '33;'
+        + 'border-radius:12px;'
+        + 'padding:12px 14px;'
+        + 'margin-bottom:18px'
+        + '">'
+        + '<div style="font-size:10px;color:' + C.aqua + ';font-weight:800;letter-spacing:1px;margin-bottom:6px">💬 NOTA</div>'
+        + '<div style="font-size:13px;color:' + C.white + ';line-height:1.6">' + session.notes + '</div>'
+        + '</div>' : '')
+ 
+      // SECCIÓN: EJERCICIOS
+      + '<div style="margin-bottom:16px">'
+      + '<div style="font-size:10px;letter-spacing:2.5px;color:' + C.muted + ';font-weight:700;margin-bottom:12px">EJERCICIOS REALIZADOS</div>';
+ 
+    groups.forEach(function(ex) {
+      var maxW = Math.max.apply(null, ex.sets.map(function(s2) { return +(s2.weight) || 0; }));
+      var vol2 = Math.round(ex.sets.reduce(function(a, s2) {
+        return a + (+(s2.weight) || 0) * (+(s2.reps) || 0);
+      }, 0));
+ 
+      html += '<div style="'
+        + 'background:' + C.bg + ';'
+        + 'border:1px solid ' + C.border + ';'
+        + 'border-radius:12px;'
+        + 'padding:14px;'
+        + 'margin-bottom:12px'
+        + '">'
+        // Nombre + Icon
+        + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
+          + '<div style="font-size:20px">' + ex.icon + '</div>'
+          + '<div>'
+            + '<div style="font-size:15px;font-weight:800;color:' + C.white + '">' + ex.name + '</div>'
+          + '</div>'
+        + '</div>'
+        
+        // Estadísticas: Max, Vol, Sets
+        + '<div style="'
+          + 'display:grid;'
+          + 'grid-template-columns:1fr 1fr 1fr;'
+          + 'gap:8px;'
+          + 'margin-bottom:12px'
+        + '">'
+          + '<div style="background:' + C.aqua + '15;border:1px solid ' + C.aqua + '33;border-radius:10px;padding:10px;text-align:center">'
+            + '<div style="font-size:9px;color:' + C.aqua + ';font-weight:800;letter-spacing:1px">MAX</div>'
+            + '<div style="font-size:18px;font-weight:900;color:' + C.white + ';margin:4px 0">' + maxW + '</div>'
+            + '<div style="font-size:10px;color:' + C.muted + '">kg</div>'
+          + '</div>'
+          + '<div style="background:' + C.lime + '15;border:1px solid ' + C.lime + '33;border-radius:10px;padding:10px;text-align:center">'
+            + '<div style="font-size:9px;color:' + C.lime + ';font-weight:800;letter-spacing:1px">VOL</div>'
+            + '<div style="font-size:18px;font-weight:900;color:' + C.white + ';margin:4px 0">' + vol2 + '</div>'
+            + '<div style="font-size:10px;color:' + C.muted + '">kg</div>'
+          + '</div>'
+          + '<div style="background:' + C.border + ';border:1px solid ' + C.border + ';border-radius:10px;padding:10px;text-align:center">'
+            + '<div style="font-size:9px;color:' + C.muted + ';font-weight:800;letter-spacing:1px">SETS</div>'
+            + '<div style="font-size:18px;font-weight:900;color:' + C.white + ';margin:4px 0">' + ex.sets.length + '</div>'
+            + '<div style="font-size:10px;color:' + C.muted + '">series</div>'
+          + '</div>'
+        + '</div>'
+        
+        // Series individual
+        + '<div style="border-top:1px solid ' + C.border + ';padding-top:12px">';
+ 
+      ex.sets.forEach(function(s2, idx) {
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid ' + C.dark + '">'
+          + '<span style="font-size:12px;color:' + C.muted + '">Set ' + (idx + 1) + '</span>'
+          + '<span style="font-size:12px;color:' + C.white + ';font-weight:800">' + s2.weight + 'kg × ' + s2.reps + '</span>'
+          + (s2.rpe ? '<span style="font-size:10px;color:#818cf8;background:#4f46e533;padding:2px 8px;border-radius:6px;font-weight:700">RPE ' + s2.rpe + '</span>' : '')
+          + '</div>';
+      });
+ 
+      html += '</div></div>';
+    });
+ 
+    html += '</div>'
+ 
+      // BOTÓN: Volver al HISTORIAL
+      + '<button onclick="closeSessionDetail()" style="'
+        + 'width:100%;'
+        + 'padding:14px;'
+        + 'background:linear-gradient(135deg,' + C.aqua + ',' + C.lime + ');'
+        + 'border:none;'
+        + 'border-radius:12px;'
+        + 'color:' + C.bg + ';'
+        + 'font-size:14px;'
+        + 'font-weight:900;'
+        + 'cursor:pointer;'
+        + 'margin-top:16px'
+      + '">← Volver al historial</button>'
+ 
+    + '</div>'
+    + '</div>';
+ 
+  // Agregar al DOM
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+ 
+/**
+ * ✕ CERRAR MODAL DE SESIÓN
+ */
+function closeSessionDetail() {
+  var modal = document.getElementById('session-detail-modal');
+  if (modal) {
+    modal.style.animation = 'slideDown .25s ease forwards';
+    setTimeout(function() { modal.remove(); }, 250);
+  }
+}
+ 
+/**
+ * 🏋️ AGRUPAR SERIES POR EJERCICIO
+ */
+function groupSets(sessionSets) {
+  var groups = {};
+  (sessionSets || []).forEach(function(s) {
+    var key = s.exercise_id || s.exercise_name;
+    if (!groups[key]) {
+      groups[key] = {
+        id: s.exercise_id,
+        name: s.exercise_name || 'Sin nombre',
+        icon: s.exercise_icon || '💪',
+        category: s.exercise_category || '',
+        sets: []
+      };
+    }
+    groups[key].sets.push(s);
+  });
+  return Object.values(groups);
+}
+ 
+// ═══════════════════════════════════════════════════════════════════════════
+// 🎨 ANIMACIONES NECESARIAS (Agregar a tu <style> si no existen)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// @keyframes slideUp{
+//   from{transform:translateY(100%);opacity:0}
+//   to{transform:translateY(0);opacity:1}
+// }
+//
+// @keyframes slideDown{
+//   from{transform:translateY(0);opacity:1}
+//   to{transform:translateY(100%);opacity:0}
+// }
+//
+// ═══════════════════════════════════════════════════════════════════════════
   if (!sessions || !sessions.length) return '';
   
   var html = '';
