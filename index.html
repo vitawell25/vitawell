@@ -2423,6 +2423,238 @@ async function saveTrainerFeedback(sessionId, loadAdjustment) {
 }
 
 
+function _renderHeatmap(sessions) {
+  if (!sessions || !sessions.length) return '';
+  
+  var html = '';
+  var now = new Date();
+  var thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  
+  // Agrupar sesiones por fecha
+  var dateMap = {};
+  sessions.forEach(function(s) {
+    var dateStr = (s.date || '').slice(0, 10); // YYYY-MM-DD
+    if (dateStr) {
+      if (!dateMap[dateStr]) dateMap[dateStr] = [];
+      dateMap[dateStr].push(s);
+    }
+  });
+  
+  // STREAAAK
+  var streak = 0;
+  var d = new Date();
+  while (true) {
+    var dateStr = d.toISOString().slice(0, 10);
+    if (dateMap[dateStr]) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  
+  html += '<div style="background:linear-gradient(135deg,' + C.aqua + '22,' + C.lime + '11);border:1.5px solid ' + C.aqua + '44;border-radius:20px;padding:18px;margin-bottom:20px;display:flex;align-items:center;gap:16px">'
+    + '<div style="width:60px;height:60px;border-radius:16px;background:linear-gradient(135deg,' + C.aqua + ',' + C.lime + ');display:flex;align-items:center;justify-content:center;font-size:28px">🔥</div>'
+    + '<div>'
+      + '<div style="font-size:28px;font-weight:900;color:' + C.white + '">' + streak + '</div>'
+      + '<div style="font-size:12px;color:' + C.aqua + ';font-weight:700">días de racha</div>'
+    + '</div>'
+    + '</div>';
+  
+  // Mini calendario: mostrar últimos 7 días
+  html += '<div style="font-size:10px;letter-spacing:2.5px;color:' + C.muted + ';font-weight:700;margin-bottom:10px">ÚLTIMOS 7 DÍAS</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:20px">';
+  
+  for (var i = 6; i >= 0; i--) {
+    var d = new Date();
+    d.setDate(d.getDate() - i);
+    var dateStr = d.toISOString().slice(0, 10);
+    var hasSession = dateMap[dateStr] ? true : false;
+    var dayOfWeek = ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa'][d.getDay()];
+    var dayNum = d.getDate();
+    
+    html += '<button '
+      + 'onclick="selectDayFromCalendar(\'' + dateStr + '\')" '
+      + 'style="'
+        + 'padding:10px 6px;'
+        + 'border-radius:10px;'
+        + 'border:2px solid ' + (hasSession ? C.aqua + '66' : C.border) + ';'
+        + 'background:' + (hasSession ? C.aqua + '15' : 'transparent') + ';'
+        + 'color:' + (hasSession ? C.aqua : C.muted) + ';'
+        + 'font-weight:800;'
+        + 'font-size:10px;'
+        + 'cursor:pointer;'
+        + 'transition:all .2s;'
+      + '" '
+      + 'title="' + dayNum + ' ' + dayOfWeek + (hasSession ? ' - ' + dateMap[dateStr].length + ' sesiones' : '') + '" '
+      + '>'
+        + '<div style="font-size:12px;margin-bottom:2px">' + (hasSession ? '✓' : dayNum) + '</div>'
+        + '<div style="font-size:8px">' + dayOfWeek + '</div>'
+      + '</button>';
+  }
+  
+  html += '</div>';
+  
+  return html;
+}
+
+// ┌─────────────────────────────────────────────────────────────────┐
+// │ 🔥 FUNCIÓN CLAVE 2: SELECCIONAR DÍA DEL CALENDARIO             │
+// └─────────────────────────────────────────────────────────────────┘
+
+function selectDayFromCalendar(dateStr) {
+  if (!dateStr) return;
+  
+  var session = STATE.sessions.find(function(s) {
+    return (s.date || '').slice(0, 10) === dateStr;
+  });
+  
+  if (!session) {
+    toast('No hay entrenamiento ese día', 'warn');
+    return;
+  }
+  
+  // Guardar sesión seleccionada en STATE
+  STATE.selectedSessionId = session.id;
+  STATE.selectedSessionDate = dateStr;
+  
+  // Renderizar detalle
+  renderSessionDetail(session);
+}
+
+// ┌─────────────────────────────────────────────────────────────────┐
+// │ 🔥 FUNCIÓN CLAVE 3: RENDERIZAR DETALLE DE SESIÓN               │
+// └─────────────────────────────────────────────────────────────────┘
+
+function renderSessionDetail(session) {
+  if (!session) return;
+  
+  var groups = groupSets(session.session_sets || []);
+  var totalVol = Math.round((session.session_sets || []).reduce(function(a, x) {
+    return a + (+(x.weight) || 0) * (+(x.reps) || 0);
+  }, 0));
+  
+  var avgRpe = (function() {
+    var withRpe = (session.session_sets || []).filter(function(x) { return x.rpe; });
+    if (!withRpe.length) return null;
+    return (withRpe.reduce(function(a, x) { return a + (+x.rpe); }, 0) / withRpe.length).toFixed(1);
+  })();
+  
+  // Crear modal
+  var html = '<div id="session-detail-modal" style="'
+    + 'position:fixed;inset:0;z-index:1000;background:rgba(10,22,40,.9);backdrop-filter:blur(10px);'
+    + 'display:flex;align-items:center;justify-content:center;padding:20px'
+    + '" onclick="if(event.target.id===\'session-detail-modal\') closeSessionDetail()">'
+    + '<div style="'
+      + 'background:' + C.card + ';border:1.5px solid ' + C.border + ';'
+      + 'border-radius:20px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;'
+      + 'padding:24px;animation:fadeUp .3s ease'
+    + '">'
+      // Header
+      + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">'
+        + '<button onclick="closeSessionDetail()" style="background:transparent;border:none;color:' + C.muted + ';font-size:20px;cursor:pointer">✕</button>'
+        + '<div style="flex:1">'
+          + '<div style="font-size:18px;font-weight:900;color:' + C.white + '">📅 ' + session.date + '</div>'
+          + '<div style="font-size:12px;color:' + C.muted + ';margin-top:4px">' + groups.length + ' ejercicios · ' + totalVol + 'kg vol' + (avgRpe ? ' · RPE ' + avgRpe : '') + '</div>'
+        + '</div>'
+      + '</div>'
+      
+      // Notas
+      + (session.notes ? '<div style="background:' + C.aqua + '15;border:1px solid ' + C.aqua + '33;border-radius:12px;padding:12px;margin-bottom:16px">'
+        + '<div style="font-size:11px;color:' + C.muted + ';font-weight:700;margin-bottom:6px">💬 NOTA</div>'
+        + '<div style="font-size:13px;color:' + C.white + ';line-height:1.5">' + session.notes + '</div>'
+      + '</div>' : '')
+      
+      // Ejercicios
+      + '<div style="font-size:10px;letter-spacing:2.5px;color:' + C.muted + ';font-weight:700;margin-bottom:12px">EJERCICIOS REALIZADOS</div>';
+  
+  groups.forEach(function(ex) {
+    var maxW = Math.max.apply(null, ex.sets.map(function(s2) { return +(s2.weight) || 0; }));
+    var vol2 = Math.round(ex.sets.reduce(function(a, s2) { return a + (+(s2.weight) || 0) * (+(s2.reps) || 0); }, 0));
+    var exCols = getCatColor(ex.sets[0] ? (ex.sets[0].exercise_category || '') : '');
+    
+    html += '<div style="background:' + C.bg + ';border:1px solid ' + C.border + ';border-radius:12px;padding:12px;margin-bottom:10px">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+        + '<div style="font-size:18px">' + ex.icon + '</div>'
+        + '<div style="flex:1">'
+          + '<div style="font-size:14px;font-weight:800;color:' + C.white + '">' + ex.name + '</div>'
+          + '<div style="font-size:10px;color:' + exCols[0] + ';font-weight:700">' + (ex.sets[0] ? (ex.sets[0].exercise_category || '') : '') + '</div>'
+        + '</div>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px">'
+        + '<div style="background:' + C.aqua + '15;border:1px solid ' + C.aqua + '33;border-radius:8px;padding:8px;text-align:center">'
+          + '<div style="font-weight:800;color:' + C.aqua + '">Max</div>'
+          + '<div style="font-size:16px;font-weight:900;color:' + C.white + '">' + maxW + '</div>'
+          + '<div style="color:' + C.muted + '">kg</div>'
+        + '</div>'
+        + '<div style="background:' + C.lime + '15;border:1px solid ' + C.lime + '33;border-radius:8px;padding:8px;text-align:center">'
+          + '<div style="font-weight:800;color:' + C.lime + '">Vol</div>'
+          + '<div style="font-size:16px;font-weight:900;color:' + C.white + '">' + vol2 + '</div>'
+          + '<div style="color:' + C.muted + '">kg</div>'
+        + '</div>'
+        + '<div style="background:' + C.border + ';border:1px solid ' + C.border + ';border-radius:8px;padding:8px;text-align:center">'
+          + '<div style="font-weight:800;color:' + C.muted + '">Sets</div>'
+          + '<div style="font-size:16px;font-weight:900;color:' + C.white + '">' + ex.sets.length + '</div>'
+          + '<div style="color:' + C.muted + '">series</div>'
+        + '</div>'
+      + '</div>'
+      + '<div style="margin-top:8px;padding-top:8px;border-top:1px solid ' + C.border + '">'
+        + '<div style="font-size:10px;color:' + C.muted + ';line-height:1.6">'
+          + ex.sets.map(function(s2, idx) {
+              return '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'
+                + '<span>Set ' + (idx + 1) + ':</span>'
+                + '<span style="color:' + C.aqua + ';font-weight:800">' + s2.weight + 'kg × ' + s2.reps + '</span>'
+                + (s2.rpe ? '<span style="color:#818cf8;font-size:9px">RPE ' + s2.rpe + '</span>' : '')
+                + '</div>';
+            }).join('')
+        + '</div>'
+      + '</div>'
+    + '</div>';
+  });
+  
+  html += '</div></div>';
+  
+  // Mostrar modal
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('session-detail-modal').addEventListener('click', function(e) {
+    if (e.target.id === 'session-detail-modal') closeSessionDetail();
+  });
+}
+
+// ┌─────────────────────────────────────────────────────────────────┐
+// │ 🔥 FUNCIÓN CLAVE 4: CERRAR DETALLE DE SESIÓN                   │
+// └─────────────────────────────────────────────────────────────────┘
+
+function closeSessionDetail() {
+  var modal = document.getElementById('session-detail-modal');
+  if (modal) {
+    modal.style.animation = 'fadeDown .2s ease';
+    setTimeout(function() { modal.remove(); }, 200);
+  }
+}
+
+// ┌─────────────────────────────────────────────────────────────────┐
+// │ 🔥 FIX: AGRUPAR SERIES POR EJERCICIO                            │
+// └─────────────────────────────────────────────────────────────────┘
+
+function groupSets(sessionSets) {
+  var groups = {};
+  (sessionSets || []).forEach(function(s) {
+    var key = s.exercise_id;
+    if (!groups[key]) {
+      groups[key] = {
+        id: key,
+        name: s.exercise_name || 'Sin nombre',
+        icon: s.exercise_icon || '💪',
+        category: s.exercise_category || '',
+        sets: []
+      };
+    }
+    groups[key].sets.push(s);
+  });
+  return Object.values(groups);
+}
+
 
 // ── CLIENT ────────────────────────────────────────────────────────
 function renderClient(app) {
