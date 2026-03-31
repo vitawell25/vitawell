@@ -112,23 +112,59 @@ var SB = supabase.createClient(
   }
 );
 
+// ══════════════════════════════════════════════════════════════
+// 🔄 RETRY CON BACKOFF EXPONENCIAL (from src/utils/errors.js)
+// ══════════════════════════════════════════════════════════════
+var _RETRY_CFG = {
+  maxAttempts: 3,
+  initialDelay: 1000,
+  maxDelay: 10000,
+  backoffMultiplier: 2
+};
+
+async function retryAsync(fn, opts) {
+  var cfg = Object.assign({}, _RETRY_CFG, opts || {});
+  var lastErr;
+  for (var attempt = 1; attempt <= cfg.maxAttempts; attempt++) {
+    try {
+      var result = await fn();
+      return result;
+    } catch (err) {
+      lastErr = err;
+      var msg = (err && err.message) ? err.message : String(err);
+      // No reintentar errores de auth o validación
+      if (msg.indexOf('VALIDATION') >= 0 || msg.indexOf('AUTH') >= 0 ||
+          msg.indexOf('401') >= 0 || msg.indexOf('403') >= 0) {
+        throw err;
+      }
+      if (attempt === cfg.maxAttempts) throw err;
+      var delay = Math.min(
+        cfg.initialDelay * Math.pow(cfg.backoffMultiplier, attempt - 1),
+        cfg.maxDelay
+      );
+      console.warn('[Vitawell] Intento ' + attempt + ' fallido: "' + msg + '". Reintentando en ' + delay + 'ms...');
+      await new Promise(function(res){ setTimeout(res, delay); });
+    }
+  }
+  throw lastErr;
+}
+
+// Helper: ejecutar llamada SB con retry automático
+async function sbCall(fn, label) {
+  try {
+    return await retryAsync(fn);
+  } catch(e) {
+    console.error('[Vitawell] sbCall(' + (label||'') + ') falló:', e);
+    return { data: null, error: e };
+  }
+}
+
+
 var C = {
   bg:'#0a1628', card:'#0f1f3d', border:'#162850',
   aqua:'#00c9a7', lime:'#a8e63d', white:'#e8f4f8',
   muted:'#4a6480', dark:'#1a2f50'
 };
-
-
-// ── QA FIX 1: escapeHtml — previene XSS en inserciones innerHTML ──────────
-function escapeHtml(s) {
-  if (!s) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 var STATE = {
   user:null, profile:null, view:'loading', tab:'log',
@@ -164,8 +200,9 @@ function setInputDirect(key, val) {
 function toast(msg, type) {
   type = type || 'ok';
   set({notif:{msg:msg,type:type}});
-  var ms = Math.max(2500, msg.length * 55); // QA FIX 2: duración dinámica
-  setTimeout(function(){ set({notif:null}); }, ms);
+  // [QA FIX] Dynamic duration based on message length (min 2.5s, ~50ms per char)
+  var duration = Math.max(2500, (msg||'').length * 50);
+  setTimeout(function(){ set({notif:null}); }, duration);
 }
 
 function setForm(field, val) {
@@ -335,18 +372,21 @@ function lbl() {
 
 function fieldHtml(label, type, val, oninput, placeholder) {
   var id = 'fld-'+type;
+  // [QA FIX] Added for= attribute on label + aria-label on input for accessibility
   return '<div style="margin-bottom:16px">'
-    +'<label style="'+lbl()+'">'+label.toUpperCase()+'</label>'
+    +'<label for="'+id+'" style="'+lbl()+'">'+label.toUpperCase()+'</label>'
     +'<input id="'+id+'" type="'+type+'" value="'+(val||'')+'" oninput="'+oninput+'" placeholder="'+(placeholder||'')+'" '
+    +'aria-label="'+label+'" '
     +'style="'+inp()+'" autocomplete="'+(type==='email'?'email':type==='password'?'current-password':'off')+'" '
     +'onfocus="this.style.borderColor=\''+C.aqua+'\'" onblur="this.style.borderColor=\''+C.border+'\'"/>'
     +'</div>';
 }
 
 function notifHtml() {
-  if (!STATE.notif) return '<div aria-live="polite" id="notif-live"></div>'; // QA FIX 9: aria-live siempre presente
+  if (!STATE.notif) return '';
   var ok = STATE.notif.type !== 'err';
-  return '<div style="position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;'
+  // [QA FIX] Added role="alert" and aria-live for screen reader announcements
+  return '<div role="alert" aria-live="assertive" style="position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;'
     +'background:'+(ok?C.aqua+'22':'#ef444422')+';border:1px solid '+(ok?C.aqua:'#ef4444')+';'
     +'color:'+(ok?C.aqua:'#ef4444')+';padding:10px 20px;border-radius:50px;font-size:13px;font-weight:800;'
     +'white-space:nowrap;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.4)">'
@@ -387,6 +427,12 @@ function getExSVG(ex) {
 }
 
 function getGif(name) { return ''; }
+
+// ── SECURITY: HTML escape to prevent XSS ──────────────────────
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 
 function _normalize(str) {
   return (str||'').toLowerCase()
@@ -509,30 +555,8 @@ function _renderHeatmap(sessions) {
 
 
 // ── SUPABASE ─────────────────────────────────────────────────────
-// ── ROUTINE BUILDER ──────────────────────────────────────────────
-// QA FIX 5: Sistema routineEditor obsoleto eliminado (addRoutineEx, removeRoutineEx, updRoutineEx) — usar STATE.rb
-
-async function saveRoutine() {
-  var rt = STATE.routineEditor;
-  if (!rt || !rt.name || !rt.name.trim()) { toast('Agrega un nombre a la rutina','err'); return; }
-  if (!rt.exercises || !rt.exercises.length) { toast('Agrega al menos un ejercicio','err'); return; }
-  set({savingRoutine:true});
-  var payload = {
-    trainer_id: STATE.user.id,
-    client_id: rt.clientId || null,
-    name: rt.name.trim(),
-    exercises: JSON.stringify(rt.exercises),
-    created_at: new Date().toISOString()
-  };
-  var r = await SB.from('routines').insert(payload);
-  if (r.error) {
-    toast('Error: tabla routines no existe aun. Crea la tabla en Supabase primero.','err');
-  } else {
-    toast('Rutina guardada ✅');
-    STATE.routineEditor = {name:'', exercises:[], clientId:''};
-  }
-  set({savingRoutine:false});
-}
+// [QA FIX] Removed legacy routineEditor system (addRoutineEx, removeRoutineEx, updRoutineEx, saveRoutine)
+// The canonical Routine Builder now uses STATE.rb exclusively (rbInit, rbSave, rbToggleEx, etc.)
 
 function updAdj(idx, field, val) {
   STATE.sessionAdjust = STATE.sessionAdjust || {};
@@ -570,7 +594,8 @@ async function sendAdjustedRoutine(clientId) {
     };
   });
   var note = 'Próxima sesión ajustada: ' + exercises.map(function(e){return e.name+' '+e.sets+'×'+e.reps+'@'+e.weight+'kg';}).join(' · ');
-  var r = await SB.from('profiles').update({trainer_note: note}).eq('id', clientId);
+  var r = await sbCall(() => SB.from('profiles').update({trainer_note: note}).eq('id', clientId), 'profiles');
+
   if (r.error) {
     toast('Error enviando rutina','err');
   } else {
@@ -581,7 +606,7 @@ async function sendAdjustedRoutine(clientId) {
   }
 }
 
-// QA FIX 4: saveTrainerNote duplicada eliminada — ver versión definitiva en línea ~1692
+// [QA FIX] Removed duplicate saveTrainerNote — canonical version is at line ~1700 (uses TR buffering system)
 
 function renderOnboarding(app) {
   var step = STATE.onboardingStep || 0;
@@ -946,7 +971,8 @@ async function rbToggleSaved() {
   if (STATE.rb.showSaved && (!STATE.rb.savedRoutines || !STATE.rb.savedRoutines.length)) {
     STATE.rb.loadingSaved = true;
     renderRoutineBuilder();
-    var r = await SB.from('routines').select('*').eq('trainer_id', STATE.user.id).order('created_at', {ascending:false});
+    var r = await sbCall(() => SB.from('routines').select('*').eq('trainer_id', STATE.user.id).order('created_at', {ascending:false}), 'routines');
+
     STATE.rb.savedRoutines = r.data || [];
     STATE.rb.loadingSaved = false;
   }
@@ -975,7 +1001,8 @@ async function rbLoad(routineId) {
 
 async function rbDeleteRoutine(routineId) {
   if (!confirm('¿Eliminar esta rutina?')) return;
-  await SB.from('routines').delete().eq('id', routineId);
+  await sbCall(() => SB.from('routines').delete().eq('id', routineId), 'routines');
+
   STATE.rb.savedRoutines = (STATE.rb.savedRoutines || []).filter(function(r) { return r.id !== routineId; });
   renderRoutineBuilder();
   toast('Rutina eliminada');
@@ -989,36 +1016,40 @@ async function rbSave() {
   if (!rb.exercises || !rb.exercises.length) { toast('Agrega al menos un ejercicio','err'); return; }
   STATE.rb.saving = true;
   renderRoutineBuilder();
-  var payload = {
-    trainer_id: STATE.user.id,
-    client_id:  rb.clientId || null,
-    name:       rb.name.trim(),
-    exercises:  JSON.stringify(rb.exercises),
-    created_at: new Date().toISOString()
-  };
-  var r = await SB.from('routines').insert(payload).select();
-  STATE.rb.saving = false;
-  if (r.error) {
-    toast('Error: asegúrate de crear la tabla routines en Supabase', 'err');
-  } else {
-    toast('Rutina "' + rb.name + '" guardada ✅');
-    // Add to saved list
-    if (r.data && r.data[0]) {
-      STATE.rb.savedRoutines = [r.data[0]].concat(STATE.rb.savedRoutines || []);
+  try {
+    var payload = {
+      trainer_id: STATE.user.id,
+      client_id:  rb.clientId || null,
+      name:       rb.name.trim(),
+      exercises:  JSON.stringify(rb.exercises),
+      created_at: new Date().toISOString()
+    };
+    var r = await sbCall(() => SB.from('routines').insert(payload).select(), 'routines');
+
+    STATE.rb.saving = false;
+    if (r.error) {
+      toast('Error: asegúrate de crear la tabla routines en Supabase', 'err');
+    } else {
+      toast('Rutina "' + escapeHtml(rb.name) + '" guardada ✅');
+      if (r.data && r.data[0]) {
+        STATE.rb.savedRoutines = [r.data[0]].concat(STATE.rb.savedRoutines || []);
+      }
+      if (rb.clientId) {
+        var summary = rb.exercises.map(function(e) {
+          return e.sets + '×' + e.reps + ' ' + e.name + (e.weight ? ' @' + e.weight + 'kg' : '') + (e.rpeTarget ? ' RPE' + e.rpeTarget : '');
+        }).join('\n');
+        var note = '📋 Rutina: ' + rb.name + '\n' + summary;
+        await sbCall(() => SB.from('profiles').update({trainer_note: note}).eq('id', rb.clientId), 'profiles');
+
+        STATE.clients = STATE.clients.map(function(cl) {
+          return cl.id === rb.clientId ? Object.assign({}, cl, {trainer_note: note}) : cl;
+        });
+        toast('Rutina asignada y enviada a ' + (STATE.clients.find(function(c){return c.id===rb.clientId;}) || {}).full_name);
+      }
     }
-    // If assigned to client — write note
-    if (rb.clientId) {
-      var summary = rb.exercises.map(function(e) {
-        return e.sets + '×' + e.reps + ' ' + e.name + (e.weight ? ' @' + e.weight + 'kg' : '') + (e.rpeTarget ? ' RPE' + e.rpeTarget : '');
-      }).join('\n');
-      var note = '📋 Rutina: ' + rb.name + '\n' + summary;
-      await SB.from('profiles').update({trainer_note: note}).eq('id', rb.clientId);
-      // Refresh client in state
-      STATE.clients = STATE.clients.map(function(cl) {
-        return cl.id === rb.clientId ? Object.assign({}, cl, {trainer_note: note}) : cl;
-      });
-      toast('Rutina asignada y enviada a ' + (STATE.clients.find(function(c){return c.id===rb.clientId;}) || {}).full_name);
-    }
+  } catch(e) {
+    STATE.rb.saving = false;
+    toast('Error de conexion al guardar rutina', 'err');
   }
   renderRoutineBuilder();
 }
@@ -1026,12 +1057,14 @@ async function rbSave() {
 
 async function loadProfile(user) {
   try {
-  var r = await SB.from('profiles').select('*').eq('id', user.id).single();
+  var r = await sbCall(() => SB.from('profiles').select('*').eq('id', user.id).single(), 'profiles');
+
   var data = r.data;
 
   // Fallback 1: retry without .single() if no data
   if (!data) {
-    var r2 = await SB.from('profiles').select('*').eq('id', user.id);
+    var r2 = await sbCall(() => SB.from('profiles').select('*').eq('id', user.id), 'profiles');
+
     data = (r2.data && r2.data.length) ? r2.data[0] : null;
   }
 
@@ -1053,10 +1086,12 @@ async function loadProfile(user) {
   }
 
   var view = data.role === 'trainer' ? 'trainer' : 'client';
-  // QA FIX 3: console.log con PII eliminado (user.email, role, view)
+  // [QA FIX] Removed PII logging — user.email was exposed in production console
   if (view === 'client') {
-    var exR = await SB.from('exercises').select('*').order('category').order('name');
-    var ssR = await SB.from('workout_sessions').select('*, session_sets(*)').eq('client_id', user.id).order('date', {ascending:false});
+    var exR = await sbCall(() => SB.from('exercises').select('*').order('category').order('name'), 'exercises');
+
+    var ssR = await sbCall(() => SB.from('workout_sessions').select('*, session_sets(*)').eq('client_id', user.id).order('date', {ascending:false}), 'workout_sessions');
+
     var ex = exR.data || [];
     // Preserve active session (exercises being logged right now)
     var currentSession = STATE.session && STATE.session.length ? STATE.session : [];
@@ -1096,15 +1131,17 @@ async function loadProfile(user) {
     setTimeout(_restoreDraftSession, 800);
   } else {
     // Trainer: load exercises + clients + last session dates in parallel
-    var trainerExR = await SB.from('exercises').select('*').order('category').order('name');
+    var trainerExR = await sbCall(() => SB.from('exercises').select('*').order('category').order('name'), 'exercises');
+
     // Load ALL clients — both assigned (trainer_id) and unassigned
-    var cl = await SB.from('profiles').select('*').eq('role', 'client').order('full_name');
+    var cl = await sbCall(() => SB.from('profiles').select('*').eq('role', 'client').order('full_name'), 'profiles');
+
     var clients = cl.data || [];
     if (clients.length) {
-      var sessR = await SB.from('workout_sessions')
+      var sessR = await sbCall(() => SB.from('workout_sessions')
         .select('client_id, date')
         .in('client_id', clients.map(function(c){return c.id;}))
-        .order('date', {ascending:false});
+        .order('date', {ascending:false}), 'workout_sessions');
       var lastMap = {};
       (sessR.data||[]).forEach(function(s){ if(!lastMap[s.client_id]) lastMap[s.client_id]=s.date; });
       clients = clients.map(function(c){ return Object.assign({}, c, {last_session: lastMap[c.id]||null}); });
@@ -1357,7 +1394,8 @@ async function saveProfileCompletion() {
     level:     pf.level || 'beginner'
   };
 
-  var r = await SB.from('profiles').update(updates).eq('id', STATE.profile.id);
+  var r = await sbCall(() => SB.from('profiles').update(updates).eq('id', STATE.profile.id), 'profiles');
+
 
   if (r.error) {
     STATE.error = 'Error: ' + r.error.message;
@@ -1424,7 +1462,8 @@ async function saveProfile() {
     activity_level: pf.activityLevel || 'moderate',
     profile_complete: true
   };
-  var r = await SB.from('profiles').update(updates).eq('id', STATE.profile.id);
+  var r = await sbCall(() => SB.from('profiles').update(updates).eq('id', STATE.profile.id), 'profiles');
+
   if (r.error) {
     set({error:'Error guardando: '+r.error.message, savingProfile:false});
   } else {
@@ -1436,7 +1475,8 @@ async function saveProfile() {
 }
 
 async function signOut() {
-  await SB.auth.signOut();
+  await sbCall(() => SB.auth.signOut(), 'auth.signOut');
+
   // Mantener email guardado pero limpiar sesion
   var savedEmail = '';
   try { savedEmail = localStorage.getItem('vitawell-email') || ''; } catch(e) {}
@@ -1459,7 +1499,8 @@ async function submitAuth() {
   var pass  = (f.pass||'').trim();
   var name  = (f.name||'').trim();
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { // QA FIX 6: regex robusta
+  // [QA FIX] Robust email validation (replaces simple includes check)
+  if (!email || !(typeof validateEmail === 'function' ? validateEmail(email).valid : /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))) {
     set({error:'Ingresa un email válido'}); return;
   }
   if (pass.length < 6) {
@@ -1475,33 +1516,37 @@ async function submitAuth() {
   set({saving:true});
 
   if (STATE.authMode === 'login') {
-    var r = await SB.auth.signInWithPassword({email:email, password:pass});
+    var r = await sbCall(() => SB.auth.signInWithPassword({email:email, password:pass}), 'auth.signInWithPassword');
+
     if (r.error) { set({error:friendlyError(r.error.message), saving:false}); return; }
     try { localStorage.setItem('vitawell-email', email); } catch(e) {}
     await loadProfile(r.data.user);
   } else {
-    var r2 = await SB.auth.signUp({
+    var r2 = await sbCall(() => SB.auth.signUp({
       email: email,
       password: pass,
       options: { data: { role: f.role, full_name: name } }
-    });
+    }), 'auth.signUp');
     if (r2.error) { set({error:r2.error.message, saving:false}); return; }
     var authUser = r2.data && r2.data.user ? r2.data.user : null;
     if (!authUser) {
-      var r3 = await SB.auth.signInWithPassword({email:email, password:pass});
+      var r3 = await sbCall(() => SB.auth.signInWithPassword({email:email, password:pass}), 'auth.signInWithPassword');
+
       if (r3.error) { set({error:r3.error.message, saving:false}); return; }
       authUser = r3.data.user;
     }
     if (authUser) {
-      var existing = await SB.from('profiles').select('id').eq('id', authUser.id).single();
+      var existing = await sbCall(() => SB.from('profiles').select('id').eq('id', authUser.id).single(), 'profiles');
+
       if (!existing.data) {
-        var insertR = await SB.from('profiles').insert({
+        var insertR = await sbCall(() => SB.from('profiles').insert({
           id:authUser.id, full_name:name, email:email, role:f.role,
           sex:null, age:null, height_cm:null, weight_kg:null, goal:null, level:null
-        });
+        }), 'profiles');
         if (insertR.error) { set({error:'Error guardando perfil: '+insertR.error.message, saving:false}); return; }
       } else {
-        await SB.from('profiles').update({full_name:name, role:f.role}).eq('id', authUser.id);
+        await sbCall(() => SB.from('profiles').update({full_name:name, role:f.role}).eq('id', authUser.id), 'profiles');
+
       }
       await loadProfile(authUser);
     }
@@ -1533,32 +1578,40 @@ async function saveSession() {
   if (!hasValidSet) { toast('Ingresa peso y repeticiones en al menos una serie','err'); return; }
 
   set({saving:true});
-  var wsR = await SB.from('workout_sessions')
-    .insert({client_id:STATE.user.id, trainer_id:(STATE.profile&&STATE.profile.trainer_id)||null, date:STATE.date, notes:(function(){
-      var tags = (STATE.sessionTags||[]).join(',');
-      var note = (STATE.sessionNote||'').trim();
-      if (!tags && !note) return null;
-      return tags + '|||' + note;
-    })()})
-    .select().single();
-  if (_checkAuthError(wsR, 'saveSession')) { set({saving:false}); return; }
-  if (wsR.data) {
-    STATE.sessionNote = '';
-    STATE.sessionTags = [];
-    var rows = [];
-    valid.forEach(function(ex) {
-      ex.sets.filter(function(s){ return s.w||s.r; }).forEach(function(s,i) {
-        rows.push({session_id:wsR.data.id, exercise_id:ex.id, exercise_name:ex.name, exercise_icon:ex.icon, set_number:i+1, weight:+s.w||null, reps:+s.r||null, rpe:+s.rpe||null});
+  try {
+    var wsR = await sbCall(() => SB.from('workout_sessions')
+      .insert({client_id:STATE.user.id, trainer_id:(STATE.profile&&STATE.profile.trainer_id)||null, date:STATE.date, notes:(function(){
+        var tags = (STATE.sessionTags||[]).join(',');
+        var note = (STATE.sessionNote||'').trim();
+        if (!tags && !note) return null;
+        return tags + '|||' + note;
+      })()})
+      .select().single(), 'workout_sessions');
+    if (_checkAuthError(wsR, 'saveSession')) { set({saving:false}); return; }
+    if (wsR.data) {
+      STATE.sessionNote = '';
+      STATE.sessionTags = [];
+      var rows = [];
+      valid.forEach(function(ex) {
+        ex.sets.filter(function(s){ return s.w||s.r; }).forEach(function(s,i) {
+          rows.push({session_id:wsR.data.id, exercise_id:ex.id, exercise_name:ex.name, exercise_icon:ex.icon, set_number:i+1, weight:+s.w||null, reps:+s.r||null, rpe:+s.rpe||null});
+        });
       });
-    });
-    await SB.from('session_sets').insert(rows);
-    var full = await SB.from('workout_sessions').select('*, session_sets(*)').eq('id', wsR.data.id).single();
-    set({sessions:[full.data].concat(STATE.sessions), session:[], expanded:null, saving:false, sessionNote:'', sessionTags:[], sessionSummaryOpen:false});
-    toast('Sesión guardada 💪') // QA FIX TYPO;
-    set({tab:'history'});
-  } else {
+      await sbCall(() => SB.from('session_sets').insert(rows), 'session_sets');
+
+      var full = await sbCall(() => SB.from('workout_sessions').select('*, session_sets(*)').eq('id', wsR.data.id).single(), 'workout_sessions');
+
+      set({sessions:[full.data].concat(STATE.sessions), session:[], expanded:null, saving:false, sessionNote:'', sessionTags:[], sessionSummaryOpen:false});
+      toast('Sesion guardada 💪');
+      set({tab:'history'});
+    } else {
+      set({saving:false});
+      toast('Error al guardar','err');
+    }
+  } catch(e) {
     set({saving:false});
-    toast('Error al guardar','err');
+    toast('Error de conexion al guardar sesion','err');
+    _draftSessionToLocalStorage();
   }
 }
 
@@ -1588,45 +1641,42 @@ function trInput(field, val) {
 
 // ── Load all clients (own + unassigned pool) ──────────────────────
 async function loadAllClients() {
-  // Own clients
-  var r1 = await SB.from('profiles')
-    .select('*')
-    .eq('trainer_id', STATE.user.id);
+  try {
+    var r1 = await sbCall(() => SB.from('profiles')
+      .select('*')
+      .eq('trainer_id', STATE.user.id), 'profiles');
 
-  // All unlinked clients (no trainer assigned yet) — for discovery
-  var r2 = await SB.from('profiles')
-    .select('id, full_name, email, role, last_session')
-    .eq('role', 'client')
-    .is('trainer_id', null)
-    .limit(50);
+    var r2 = await sbCall(() => SB.from('profiles')
+      .select('id, full_name, email, role, last_session')
+      .eq('role', 'client')
+      .is('trainer_id', null)
+      .limit(50), 'profiles');
 
-  var now = new Date();
-  var todayStr = now.toISOString().slice(0,10);
-  var yStr = new Date(now.getTime() - 86400000).toISOString().slice(0,10);
-
-  var mine = (r1.data || []);
-  var pool = (r2.data || []).filter(function(p) {
-    return !mine.find(function(m) { return m.id === p.id; });
-  });
-
-  // Get last session for own clients
-  if (mine.length) {
-    var sessR = await SB.from('workout_sessions')
-      .select('client_id, date')
-      .in('client_id', mine.map(function(c) { return c.id; }))
-      .order('date', {ascending:false});
-    var lastMap = {};
-    (sessR.data||[]).forEach(function(s) {
-      if (!lastMap[s.client_id]) lastMap[s.client_id] = s.date;
+    var mine = (r1.data || []);
+    var pool = (r2.data || []).filter(function(p) {
+      return !mine.find(function(m) { return m.id === p.id; });
     });
-    mine = mine.map(function(c) {
-      return Object.assign({}, c, {last_session: lastMap[c.id]||null});
-    });
+
+    if (mine.length) {
+      var sessR = await sbCall(() => SB.from('workout_sessions')
+        .select('client_id, date')
+        .in('client_id', mine.map(function(c) { return c.id; }))
+        .order('date', {ascending:false}), 'workout_sessions');
+      var lastMap = {};
+      (sessR.data||[]).forEach(function(s) {
+        if (!lastMap[s.client_id]) lastMap[s.client_id] = s.date;
+      });
+      mine = mine.map(function(c) {
+        return Object.assign({}, c, {last_session: lastMap[c.id]||null});
+      });
+    }
+
+    STATE.clients = mine;
+    STATE.clientPool = pool;
+    set({clients: mine});
+  } catch(e) {
+    toast('Error al cargar clientes', 'err');
   }
-
-  STATE.clients = mine;
-  STATE.clientPool = pool;
-  set({clients: mine});
 }
 
 async function openClient(id) {
@@ -1634,10 +1684,10 @@ async function openClient(id) {
   if (!cl2) return;
   set({selectedClient: Object.assign({}, cl2, {sessions:[], loading:true}),
        clientDetailTab: 'history', sessionAdjust: {}});
-  var r = await SB.from('workout_sessions')
+  var r = await sbCall(() => SB.from('workout_sessions')
     .select('*, session_sets(*)')
     .eq('client_id', id)
-    .order('date', {ascending:false});
+    .order('date', {ascending:false}), 'workout_sessions');
   var sessions = r.data || [];
   set({selectedClient: Object.assign({}, cl2, {sessions: sessions, loading:false})});
   // Restore any buffered note
@@ -1646,7 +1696,8 @@ async function openClient(id) {
 }
 
 async function linkClient(clientId) {
-  await SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', clientId);
+  await sbCall(() => SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', clientId), 'profiles');
+
   toast('Cliente vinculado ✅');
   await loadAllClients();
   set({trainerTab: 'clients'});
@@ -1656,15 +1707,21 @@ async function inviteClient() {
   var email = STATE.invite.trim();
   if (!email) { toast('Ingresa un email','err'); return; }
   toast('Buscando...');
-  var r = await SB.from('profiles').select('*').eq('email', email).single();
-  if (r.data) {
-    if (r.data.trainer_id === STATE.user.id) { toast('Ya es tu cliente','err'); return; }
-    await SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', r.data.id);
-    STATE.invite = '';
-    await loadAllClients();
-    toast(r.data.full_name + ' vinculado 🎉');
-  } else {
-    toast('Email no encontrado. El cliente debe registrarse primero.','err');
+  try {
+    var r = await sbCall(() => SB.from('profiles').select('*').eq('email', email).single(), 'profiles');
+
+    if (r.data) {
+      if (r.data.trainer_id === STATE.user.id) { toast('Ya es tu cliente','err'); return; }
+      await sbCall(() => SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', r.data.id), 'profiles');
+
+      STATE.invite = '';
+      await loadAllClients();
+      toast(escapeHtml(r.data.full_name) + ' vinculado 🎉');
+    } else {
+      toast('Email no encontrado. El cliente debe registrarse primero.','err');
+    }
+  } catch(e) {
+    toast('Error de conexion al vincular cliente', 'err');
   }
 }
 
@@ -1672,14 +1729,19 @@ async function saveTrainerNote(clientId) {
   var note = TR.get('note-' + clientId);
   var ta = document.getElementById('trainer-note-' + clientId);
   if (ta) note = ta.value;
-  await SB.from('profiles').update({trainer_note: note || null}).eq('id', clientId);
-  if (STATE.selectedClient && STATE.selectedClient.id === clientId) {
-    STATE.selectedClient = Object.assign({}, STATE.selectedClient, {trainer_note: note});
+  try {
+    await sbCall(() => SB.from('profiles').update({trainer_note: note || null}).eq('id', clientId), 'profiles');
+
+    if (STATE.selectedClient && STATE.selectedClient.id === clientId) {
+      STATE.selectedClient = Object.assign({}, STATE.selectedClient, {trainer_note: note});
+    }
+    STATE.clients = STATE.clients.map(function(cl) {
+      return cl.id === clientId ? Object.assign({}, cl, {trainer_note: note}) : cl;
+    });
+    toast('Nota guardada 📝');
+  } catch(e) {
+    toast('Error al guardar nota', 'err');
   }
-  STATE.clients = STATE.clients.map(function(cl) {
-    return cl.id === clientId ? Object.assign({}, cl, {trainer_note: note}) : cl;
-  });
-  toast('Nota guardada 📝');
 }
 
 // ── RENDER TRAINER ────────────────────────────────────────────────
@@ -2197,7 +2259,7 @@ function _renderClientList() {
   });
 
   if (!list.length) {
-    mount.innerHTML = '<div style="text-align:center;padding:60px 20px;color:#4a6480"><div style="font-size:40px;margin-bottom:12px">👥</div><div style="font-size:15px;font-weight:700">' + (q?'Sin resultados para "'+escapeHtml(q)+'"':'Sin clientes') + '</div></div>'; // QA FIX 7: XSS corregido
+    mount.innerHTML = '<div style="text-align:center;padding:60px 20px;color:#4a6480"><div style="font-size:40px;margin-bottom:12px">👥</div><div style="font-size:15px;font-weight:700">' + (q?'Sin resultados para "'+escapeHtml(q)+'"':'Sin clientes') + '</div></div>';
     return;
   }
 
@@ -2243,7 +2305,8 @@ function _renderClientList() {
 // ── Assign client to trainer ────────────────────────────────────────
 async function unlinkClient(clientId) {
   if (!confirm('¿Desvincular este cliente de tu perfil?\nEl cliente seguirá en la app pero ya no aparecerá en tu lista.')) return;
-  var r = await SB.from('profiles').update({trainer_id: null}).eq('id', clientId);
+  var r = await sbCall(() => SB.from('profiles').update({trainer_id: null}).eq('id', clientId), 'profiles');
+
   if (r.error) { toast(friendlyError(r.error.message), 'err'); return; }
   STATE.clients = STATE.clients.map(function(cl) {
     return cl.id === clientId ? Object.assign({}, cl, {trainer_id: null}) : cl;
@@ -2272,20 +2335,25 @@ async function deleteClientProfile(clientId) {
 
   try {
     // Use RPC function that runs with admin privileges
-    var r = await SB.rpc('delete_user_complete', { target_user_id: clientId });
+    var r = await sbCall(() => SB.rpc('delete_user_complete', { target_user_id: clientId }), 'rpc.delete_user');
 
     if (r.error) {
       // RPC failed — fallback to manual cascade delete (profile only, not auth)
       console.warn('RPC failed, doing manual delete:', r.error.message);
 
-      var sessR = await SB.from('workout_sessions').select('id').eq('client_id', clientId);
+      var sessR = await sbCall(() => SB.from('workout_sessions').select('id').eq('client_id', clientId), 'workout_sessions');
+
       var sessIds = (sessR.data || []).map(function(s){ return s.id; });
       if (sessIds.length) {
-        await SB.from('session_sets').delete().in('session_id', sessIds);
-        await SB.from('workout_sessions').delete().eq('client_id', clientId);
+        await sbCall(() => SB.from('session_sets').delete().in('session_id', sessIds), 'session_sets');
+
+        await sbCall(() => SB.from('workout_sessions').delete().eq('client_id', clientId), 'workout_sessions');
+
       }
-      await SB.from('routines').delete().eq('client_id', clientId);
-      var rp = await SB.from('profiles').delete().eq('id', clientId);
+      await sbCall(() => SB.from('routines').delete().eq('client_id', clientId), 'routines');
+
+      var rp = await sbCall(() => SB.from('profiles').delete().eq('id', clientId), 'profiles');
+
       if (rp.error) throw new Error(rp.error.message);
     }
 
@@ -2302,7 +2370,8 @@ async function deleteClientProfile(clientId) {
 }
 
 async function assignClient(clientId) {
-  var r = await SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', clientId);
+  var r = await sbCall(() => SB.from('profiles').update({trainer_id: STATE.user.id}).eq('id', clientId), 'profiles');
+
   if (r.error) { toast('Error: '+r.error.message,'err'); return; }
   STATE.clients = STATE.clients.map(function(c){
     return c.id===clientId ? Object.assign({},c,{trainer_id:STATE.user.id}) : c;
@@ -2335,9 +2404,9 @@ async function saveTrainerFeedback(sessionId, loadAdjustment) {
 
   var r;
   if (existing) {
-    r = await SB.from('session_feedback').update(payload).eq('id', existing.id);
+    r = await sbCall(() => SB.from('session_feedback').update(payload).eq('id', existing.id), 'session_feedback');
   } else {
-    r = await SB.from('session_feedback').insert(payload);
+    r = await sbCall(() => SB.from('session_feedback').insert(payload), 'session_feedback');
   }
 
   if (r.error) { toast('Error: '+r.error.message,'err'); return; }
@@ -3318,9 +3387,9 @@ async function submitReset() {
   var resetRedirect = window.location.hostname === 'vitawell.fit'
     ? 'https://vitawell.fit/?reset=true'
     : window.location.origin + '/?reset=true';
-  var r = await SB.auth.resetPasswordForEmail(email, {
+  var r = await sbCall(() => SB.auth.resetPasswordForEmail(email, {
     redirectTo: resetRedirect
-  });
+  }), 'auth.resetPassword');
   set({saving:false});
   if (r.error) { set({error:r.error.message}); }
   else { set({resetSent:true, error:''}); }
@@ -3422,8 +3491,10 @@ function addExToSession(id) {
 // ══════════════════════════════════════════════════════════════
 async function deleteSession(id) {
   if (!confirm('¿Eliminar esta sesión? Esta acción no se puede deshacer.')) return;
-  var r = await SB.from('session_sets').delete().eq('session_id', id);
-  var r2 = await SB.from('workout_sessions').delete().eq('id', id);
+  var r = await sbCall(() => SB.from('session_sets').delete().eq('session_id', id), 'session_sets');
+
+  var r2 = await sbCall(() => SB.from('workout_sessions').delete().eq('id', id), 'workout_sessions');
+
   if (r2.error) { toast('Error eliminando sesión','err'); return; }
   set({sessions: STATE.sessions.filter(function(s){ return s.id!==id; })});
   toast('Sesión eliminada');
@@ -3441,7 +3512,8 @@ async function saveNote(sessionId) {
   var ta = document.getElementById('note-ta-'+sessionId);
   if (!ta) return;
   var note = ta.value.trim();
-  var r = await SB.from('workout_sessions').update({notes: note||null}).eq('id', sessionId);
+  var r = await sbCall(() => SB.from('workout_sessions').update({notes: note||null}).eq('id', sessionId), 'workout_sessions');
+
   if (r.error) { toast('Error guardando nota','err'); return; }
   // Update local state
   STATE.sessions = STATE.sessions.map(function(s) {
@@ -3630,15 +3702,12 @@ function _renderWM() {
   var addLabel=n?'AGREGAR <span style="background:rgba(10,22,40,.3);border-radius:20px;padding:2px 10px;margin-left:6px">'+n+'</span>':'AGREGAR';
   var overlay=document.createElement('div');
   overlay.id='ex-modal-overlay';
-  overlay.setAttribute('role','dialog'); // QA FIX 8b: ARIA dialog
-  overlay.setAttribute('aria-modal','true');
-  overlay.setAttribute('aria-label','Seleccionar ejercicios');
   overlay.onclick=function(e){if(e.target===overlay)closeExModal();};
-  overlay.innerHTML='<div id="ex-modal">'
+  overlay.innerHTML='<div id="ex-modal" role="dialog" aria-modal="true" aria-label="Seleccionar ejercicios">'
     +'<div style="display:flex;justify-content:center;padding:10px 0 2px"><div style="width:36px;height:4px;background:#1e3560;border-radius:4px"></div></div>'
     +'<div style="display:flex;align-items:center;padding:8px 20px 14px">'
       +'<div style="font-family:\'Space Grotesk\',sans-serif;font-size:17px;font-weight:700;color:#e8f4f8;flex:1">Ejercicios</div>'
-      +'<button onclick="closeExModal()" aria-label="Cerrar" style="background:#162850;border:none;color:#4a6480;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>' // QA FIX 8a: aria-label
+      +'<button onclick="closeExModal()" aria-label="Cerrar modal de ejercicios" style="background:#162850;border:none;color:#4a6480;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>'
     +'</div>'
     +'<div class="wex-filter-bar">'+fbar+'</div>'
     +'<div id="wex-chips" style="display:flex;gap:8px;flex-wrap:wrap;padding:14px 16px 10px;border-bottom:1px solid #162850">'+chipsHtml+'</div>'
@@ -3848,20 +3917,36 @@ SB.auth.onAuthStateChange(function(event, session) {
   // TOKEN_REFRESHED y otros: no interrumpir sesión activa
 });
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     🔗 PUENTE DE MÓDULOS ES — conecta src/ con el script global
+     Importa los 4 módulos y los expone en window para acceso global
+     ══════════════════════════════════════════════════════════════ -->
+<script type="module">
+  // 📦 Importar módulos
+  import * as SupabaseService from './src/services/supabase.js';
+  import * as ErrorUtils       from './src/utils/errors.js';
+  import * as Validation       from './src/utils/validation.js';
+  import * as Store            from './src/state/store.js';
+
+  // 🌐 Exponer en window para compatibilidad con el script global existente
+  window.VW = window.VW || {};
+  window.VW.supabase   = SupabaseService;
+  window.VW.errors     = ErrorUtils;
+  window.VW.validation = Validation;
+  window.VW.store      = Store;
+
+  // Exponer validadores directamente
+  window.validateEmail    = Validation.validateEmail;
+  window.validatePassword = Validation.validatePassword;
+  window.validateSession  = Validation.validateSession;
+  window.validateProfile  = Validation.validateProfile;
+
+  // Exponer retryAsync del módulo (sobrescribe la versión local si el módulo carga)
+  window.retryAsync = ErrorUtils.retryAsync;
+
+  console.log('✅ [Vitawell] Módulos ES cargados:', Object.keys(window.VW));
+</script>
+
 </body>
 </html>
-
-/* ═══════════════════════════════════════════════════════════════
-   QA FIXES APLICADOS — Vitawell index.html
-   ───────────────────────────────────────────────────────────────
-   FIX 1  escapeHtml() — función utilitaria anti-XSS
-   FIX 2  toast() con duración dinámica (proporcional al texto)
-   FIX 3  console.log con PII (email) eliminado
-   FIX 4  saveTrainerNote() duplicada eliminada (conserva L~1692)
-   FIX 5  Sistema routineEditor obsoleto eliminado (3 funciones)
-   FIX 6  Validación email: regex robusta en submitAuth()
-   FIX 7  XSS corregido: escapeHtml(q) en _renderClientList()
-   FIX 8  ARIA: role=dialog + aria-modal + aria-label en modal
-   FIX 9  aria-live='polite' en zona de notificaciones
-   FIX 10 render() directos en onclick → set({profileForm:...})
-   ═══════════════════════════════════════════════════════════════ */
