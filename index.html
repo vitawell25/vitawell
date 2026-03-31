@@ -92,8 +92,8 @@
     .wex-chip-col{display:none}
     .wex-chip-lbl{display:none}
     .wex-chip-box{display:none}
-  </style>
     *{box-sizing:border-box;margin:0;padding:0}
+  </style>
 </head>
 <body>
 <div id="app"></div>
@@ -1500,7 +1500,7 @@ async function submitAuth() {
   var name  = (f.name||'').trim();
 
   // [QA FIX] Robust email validation (replaces simple includes check)
-  if (!email || !(typeof validateEmail === 'function' ? validateEmail(email).valid : /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))) {
+  if (!email || !(typeof validateEmail === 'function' ? validateEmail(email) : /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))) {
     set({error:'Ingresa un email válido'}); return;
   }
   if (pass.length < 6) {
@@ -3923,26 +3923,26 @@ SB.auth.onAuthStateChange(function(event, session) {
      Importa los 4 módulos y los expone en window para acceso global
      ══════════════════════════════════════════════════════════════ -->
 <script type="module">
-  // 📦 Importar módulos
-  import * as SupabaseService from './src/services/supabase.js';
-  import * as ErrorUtils       from './src/utils/errors.js';
-  import * as Validation       from './src/utils/validation.js';
-  import * as Store            from './src/state/store.js';
+  // 📦 Importar módulos utilitarios
+  // (supabase.js NO se importa aquí — el cliente SB ya está inicializado
+  //  en el script global, importarlo de nuevo crearía un segundo cliente en conflicto)
+  import * as ErrorUtils  from './src/utils/errors.js';
+  import * as Validation  from './src/utils/validation.js';
+  import * as Store       from './src/state/store.js';
 
   // 🌐 Exponer en window para compatibilidad con el script global existente
   window.VW = window.VW || {};
-  window.VW.supabase   = SupabaseService;
   window.VW.errors     = ErrorUtils;
   window.VW.validation = Validation;
   window.VW.store      = Store;
 
-  // Exponer validadores directamente
+  // Exponer validadores directamente (retornan boolean, no objetos)
   window.validateEmail    = Validation.validateEmail;
   window.validatePassword = Validation.validatePassword;
   window.validateSession  = Validation.validateSession;
   window.validateProfile  = Validation.validateProfile;
 
-  // Exponer retryAsync del módulo (sobrescribe la versión local si el módulo carga)
+  // retryAsync del módulo (más completo que la versión inline)
   window.retryAsync = ErrorUtils.retryAsync;
 
   console.log('✅ [Vitawell] Módulos ES cargados:', Object.keys(window.VW));
